@@ -1,0 +1,32 @@
+ktor:
+  deployment:
+    port: ${PORT}
+  application:
+    modules:
+      - com.era.backend.ApplicationKt.module
+
+database:
+  host: ${DB_HOST}
+  port: ${DB_PORT}
+  name: ${DB_NAME}
+  user: ${DB_USER}
+  password: ${DB_PASSWORD}
+
+jwt:
+  secret: ${JWT_SECRET}
+  session:
+    issuer: era-backend
+    audience: era-app-session
+    expirationMinutes: 43200
+  passwordReset:
+    issuer: era-backend
+    audience: era-app-reset
+    ttlMinutes: 10
+    purpose: PASSWORD_RESET
+
+mail:
+  host: ${SMTP_HOST}
+  port: ${SMTP_PORT}
+  user: ${SMTP_USER}
+  password: ${SMTP_PASSWORD}
+  from: ${SMTP_FROM}

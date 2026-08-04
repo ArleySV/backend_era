@@ -1,0 +1,24 @@
+product: jvm/app
+
+dependencies:
+  - $ktor.server.config.yaml
+  - $ktor.server.core
+  - $ktor.server.netty
+  - $ktor.server.contentNegotiation
+  - $ktor.serialization.kotlinx.json
+  - $ktor.server.auth.jwt
+  - $libs.logback.classic
+  - $libs.bcrypt
+  - $libs.simpleJavaMail
+  - $libs.flyway.core
+  - $libs.flyway.mysql
+  - $libs.mysql.connector.j
+
+test-dependencies:
+  - $ktor.server.testHost
+
+settings:
+  jvm:
+    mainClass: com.era.backend.ApplicationKt
+  ktor: enabled
+

@@ -1,0 +1,20 @@
+# Build (Amper)
+build/
+
+# Caché de Amper (no existe hoy, se ignora preventivo por si el CLI lo crea)
+.amper/
+
+# Herramientas de desarrollo descargadas por scripts/ (p. ej. ktlint)
+.tools/
+
+# Variables de entorno locales (no versionar secretos)
+.env
+# .env.example SÍ se versiona (solo placeholders)
+
+# IDE (IntelliJ IDEA) — configuración local de cada dev
+.idea/
+*.iml
+
+# Logs (los de Amper ya viven en build/, esto es defensivo)
+*.log
+logs/
