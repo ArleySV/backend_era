@@ -1,6 +1,7 @@
 package com.era.backend.database
 
 import com.era.backend.config.toAppConfig
+import com.era.backend.plugins.DatabaseFactory
 import io.ktor.server.netty.EngineMain
 
 /**

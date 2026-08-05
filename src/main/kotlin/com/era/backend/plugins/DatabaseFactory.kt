@@ -1,4 +1,4 @@
-package com.era.backend.database
+package com.era.backend.plugins
 
 import com.era.backend.config.DatabaseConfig
 import com.zaxxer.hikari.HikariConfig

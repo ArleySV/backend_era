@@ -5,6 +5,7 @@ dependencies:
   - $ktor.server.core
   - $ktor.server.netty
   - $ktor.server.contentNegotiation
+  - $ktor.server.statusPages
   - $ktor.serialization.kotlinx.json
   - $ktor.server.auth.jwt
   - $libs.logback.classic
@@ -24,5 +25,7 @@ test-dependencies:
 settings:
   jvm:
     mainClass: com.era.backend.ApplicationKt
+  kotlin:
+    serialization: enabled
   ktor: enabled
 

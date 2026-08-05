@@ -1,8 +1,9 @@
 package com.era.backend
 
 import com.era.backend.config.loadAppConfig
-import com.era.backend.database.DatabaseFactory
 import com.era.backend.database.DatabaseMigrator
+import com.era.backend.plugins.DatabaseFactory
+import com.era.backend.plugins.configurePlugins
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.netty.EngineMain
@@ -12,6 +13,8 @@ fun main(args: Array<String>) {
 }
 
 fun Application.module() {
+    configurePlugins()
+
     val dataSource = DatabaseFactory.createDataSource(loadAppConfig().database)
 
     monitor.subscribe(ApplicationStopped) {
