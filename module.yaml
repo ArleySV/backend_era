@@ -9,6 +9,10 @@ dependencies:
   - $ktor.server.auth.jwt
   - $libs.logback.classic
   - $libs.bcrypt
+  - $libs.exposed.core
+  - $libs.exposed.java.time
+  - $libs.exposed.jdbc
+  - $libs.hikari
   - $libs.simpleJavaMail
   - $libs.flyway.core
   - $libs.flyway.mysql

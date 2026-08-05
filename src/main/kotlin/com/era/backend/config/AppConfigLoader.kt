@@ -5,6 +5,7 @@ import io.ktor.server.config.ApplicationConfig
 
 fun ApplicationConfig.toAppConfig(): AppConfig {
     fun path(key: String): String = property(key).getString()
+    fun pathOrNull(key: String): String? = propertyOrNull(key)?.getString()
 
     return AppConfig(
         database =
@@ -14,6 +15,11 @@ fun ApplicationConfig.toAppConfig(): AppConfig {
                 name = path("database.name"),
                 user = path("database.user"),
                 password = path("database.password"),
+                pool =
+                    DatabasePoolConfig(
+                        maxSize = pathOrNull("database.pool.maxSize")?.toInt() ?: DatabasePoolConfig().maxSize,
+                        connectionTimeoutMs = pathOrNull("database.pool.connectionTimeoutMs")?.toLong() ?: DatabasePoolConfig().connectionTimeoutMs,
+                    ),
             ),
         jwt =
             JwtConfig(

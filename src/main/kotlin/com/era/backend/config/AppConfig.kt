@@ -12,10 +12,16 @@ data class DatabaseConfig(
     val name: String,
     val user: String,
     val password: String,
+    val pool: DatabasePoolConfig = DatabasePoolConfig(),
 ) {
     val jdbcUrl: String
         get() = "jdbc:mysql://$host:$port/$name?useSSL=true&serverTimezone=UTC"
 }
+
+data class DatabasePoolConfig(
+    val maxSize: Int = 10,
+    val connectionTimeoutMs: Long = 30_000,
+)
 
 data class JwtConfig(
     val secret: String,

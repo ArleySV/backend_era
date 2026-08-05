@@ -5,12 +5,16 @@ ktor:
     modules:
       - com.era.backend.ApplicationKt.module
 
+
 database:
   host: ${DB_HOST}
   port: ${DB_PORT}
   name: ${DB_NAME}
   user: ${DB_USER}
   password: ${DB_PASSWORD}
+  pool:
+    maxSize: 10
+    connectionTimeoutMs: 30000
 
 jwt:
   secret: ${JWT_SECRET}

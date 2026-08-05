@@ -230,4 +230,33 @@ expone endpoints de subida de archivos.
 
 ## 9. Estado actual del repositorio
 
-Actualizar.
+**Esquema de base de datos**
+
+- Migración Flyway `resources/db/migration/V1__init_schema.sql` con el esquema
+  aprobado en revisión conjunta (12 tablas): `usuario`, `acudiente`,
+  `registro_pendiente`, `codigo_verificacion`, `tokens_reseteo`, `configuracion`,
+  `comentario`, `nivel`, `pregunta`, `opcion_respuesta`, `progreso_usuario`, `intento`.
+- `scripts/init_schema.sql`: DDL autocontenido para ejecución manual en MySQL
+  Workbench; es `V1__init_schema.sql` más `CREATE DATABASE IF NOT EXISTS` y
+  `USE era_db` iniciales (única diferencia).
+- Motor InnoDB · utf8mb4 · FK con `ON DELETE RESTRICT` hacia `usuario` (segunda
+  barrera contra borrado físico) · catálogo de trivia con `CASCADE` · soft delete
+  vía `usuario.estado` · OTP hasheados con bcrypt.
+- Base por defecto: `era_db` (ver `.env.example`). Si el esquema se crea a mano,
+  Flyway lo toma como baseline (`baselineOnMigrate(true)`), nunca borra datos.
+- Diccionario de datos en `docs/DICCIONARIO_DATOS.md`.
+
+**Código**
+
+- Proyecto Amper (no Gradle): `module.yaml` + `libs.versions.toml`, wrapper
+  `kotlin`/`kotlin.bat`.
+- `src/main/kotlin/com/era/backend/`: `Application.kt`, `config/`
+  (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
+  `MigrateRunner`). **Sin endpoints implementados todavía.**
+- Dependencias declaradas: Ktor (server core/netty, content negotiation,
+  kotlinx.json, auth JWT), logback, bcrypt, simpleJavaMail, Flyway (core + mysql),
+  mysql-connector-j.
+- Scripts auxiliares en `scripts/`: `dev.ps1`, `lint.ps1`, `migrate.ps1`.
+
+**Próximos pasos (sugeridos):** implementar el Módulo A (registro) capa por capa:
+rutas → servicio → repositorio (Exposed) sobre la migración V1.
