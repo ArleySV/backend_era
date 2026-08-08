@@ -13,7 +13,7 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 | Lenguaje | Kotlin | Mismo lenguaje que el cliente Android (interop de equipo y de modelos). |
 | Framework | Ktor (Netty) | Ligero y asíncrono, suficiente para una API REST de autenticación y sincronización. |
 | Base de datos | MySQL | Administrada con MySQL Workbench; requisito del proyecto. |
-| Acceso a datos | Exposed (pendiente de añadir) | DSL de tablas y consultas con tipado seguro. |
+| Acceso a datos | Exposed (1.3.1) + HikariCP (7.1.0) | DSL de tablas y consultas con tipado seguro sobre un pool Hikari/MySQL. |
 | Sistema de build | **Amper, no Gradle** | El proyecto salió del Ktor Project Generator con Amper; CLAUDE.md prohíbe crear archivos Gradle. |
 
 ## Comandos (wrapper Amper)
@@ -50,6 +50,10 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
+- **Suite actual: 38 tests** que cubren el flujo de autenticación (`RegistrationServiceTest`,
+  `OtpServiceTest`, `AuthControllerTest`), la validación de forma y negocio, el manejo
+  centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
+  (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
 
@@ -112,13 +116,28 @@ desincronizarse.
 | `$libs.flyway-mysql` (`org.flywaydb:flyway-mysql`) | 12.11.0 | Soporte de MySQL en Flyway (community). |
 | `$libs.mysql-connector-j` (`com.mysql:mysql-connector-j`) | 9.6.0 | Driver JDBC oficial para MySQL. |
 
-> Pendiente para los módulos de datos: Exposed, HikariCP y la sección de base de datos en
-> `resources/application.yaml`. Se añaden módulo a módulo y previa aprobación (regla de
-> trabajo de CLAUDE.md). El driver MySQL ya está disponible para las migraciones.
+> Exposed (core/java.time/jdbc) y HikariCP ya están declarados y los usa la capa de
+> repositorios; la configuración de base de datos vive en `AppConfig`/
+> `resources/application.yaml` (migraciones Flyway + pool Hikari/MySQL). Nuevas
+> dependencias se añaden módulo a módulo y previa aprobación (regla de trabajo de
+> CLAUDE.md).
 
 ## Estado del proyecto
 
 - Base verificada del entorno: JDK 21 (Temurin), MySQL Server 8.0, MySQL Workbench 8.0,
   IntelliJ IDEA 2026.2, cliente REST vía `curl`/HTTP Client de IDEA.
 - Proyecto funcional: `GET /` responde y el build compila.
-- Nada de ERA implementado todavía (rutas, capas y tablas por crear).
+- **Módulo A (Registro) completo:** `POST /api/v1/auth/register` operativo, con
+  validaciones de forma (V4–V9) en el controller y de negocio (V1–V3, política de
+  contraseña CA2) en el service; capa de datos sobre Exposed/Flyway (12 tablas) y suite
+  de tests en verde.
+
+## Endpoints de la API (v1)
+
+| Endpoint | Función |
+|---|---|
+| `POST /api/v1/auth/register` | Registro del menor y su acudiente + envío del OTP de 6 dígitos al correo. Valida la forma (V4–V9) y las reglas de negocio (unicidad de correo/usuario V1, limpieza lazy V2, política de contraseña CA2/V3), crea el registro pendiente con hash bcrypt (contraseña + OTP, vigencia 10 min) y responde `201 Created` con `{ "message": ... }`. |
+
+Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
+`details` por campo) / `INVALID_REQUEST`, y `409` `EMAIL_ALREADY_REGISTERED`,
+`EMAIL_LOCKED` o `CONFLICT`.
