@@ -44,6 +44,11 @@ en cuenta de aquí en adelante al proponer dependencias o comandos.
 | **F** Cierre de sesión | REQ-FUN-04, CU-05, HU-04 | `POST /api/v1/auth/logout` |
 | **G** Sincronización de progreso | REQ-FUN-12, REQ-FUN-10/11, CU-08, CU-12 | `GET /api/v1/progress/sync`, `POST /api/v1/progress/sync` |
 | **H** Comentarios | REQ-FUN-14, CU-10, HU-14 | `POST /api/v1/feedback/comments` |
+| **I** Avatar personalizado | REQ-FUN-01 (uso diferido), REQ-FUN-06, HU-06 | `PUT /api/v1/users/me/avatar` (multipart, autenticado), `GET /api/v1/users/me/avatar` (autenticado) |
+
+> Nota sobre **I**: el avatar personalizado **no forma parte de CU-12** — la
+> sincronización no incluye imágenes (REQ-FUN-06). La subida es **post-verificación**
+> (el usuario ya existe); ver §5.4 decisión 7.
 
 > Nota sobre **E**: el verbo HTTP es `DELETE` por convención REST, pero la
 > implementación es **siempre soft delete** por estado (`estado = inactivo`), según
@@ -72,6 +77,8 @@ src/main/kotlin/com/era/backend/
 │                               #   orquestación del service y mapeo de respuesta.
 ├── services/                   # Reglas de negocio (la parte "reutilizable" y testeable).
 ├── repositories/               # Acceso a datos vía Exposed/JDBC. Aísla el SQL.
+├── storage/                    # Persistencia de archivos del avatar personalizado (Módulo I):
+│                               #   AvatarStorage (interfaz) + LocalDiskAvatarStorage (impl disco local)
 ├── models/
 │   ├── entities/               # Tablas Exposed + filas (mapeo 1:1 con el diccionario de datos).
 │   └── dto/                    # Contratos request/response. Únicos objetos que cruzan la API.
@@ -157,6 +164,7 @@ al contrato de la API. La conversión vive en `utils/` (mappers) y es explícita
 | **Authentication (JWT)** | Proteger rutas autenticadas | Firma HS256 con secreto desde configuración (`<JWT_SECRET>`). Se aplica a D, E, F, G y H; **no** a A, A.1, B, C (pre-autenticación). Logout invalida localmente el token (REQ-FUN-04). |
 | **StatusPages** | Manejo centralizado de errores | Convierte excepciones de dominio en un único formato de error (sección 5.2). Evita respuestas inconsistentes y filtra stack traces. |
 | **CallLogging** | Logging de requests | Registra `método, path, status, duración`. |
+| **AvatarStorage** | Almacenar/servir/eliminar la imagen de avatar personalizado (Módulo I) | No es un plugin Ktor: es una abstracción de storage (interfaz) con implementación `LocalDiskAvatarStorage` sobre el directorio `AVATAR_STORAGE_DIR`, inyectada en el controller de `/users/me/avatar`. Permite migrar a S3 sin rediseño. |
 
 ### 3.1 CallLogging — qué se loguea y qué nunca
 **Sí se loguea:** método HTTP, path, status code, duración, ID de request.
@@ -334,21 +342,71 @@ transporta `status` y `errorCode`:
    para que el equipo lo reconsidere si el perfil de riesgo cambia (p. ej. si se agregan
    datos más sensibles en el futuro).
 
+3. **Límite de intentos fallidos de verificación de OTP (P1) — aprobado.** Tras **3 intentos
+   fallidos consecutivos** al verificar un código OTP, el código queda **invalidado** y el
+   cliente debe solicitar reenvío. Toda verificación posterior falla con el mismo error
+   genérico (`OtpInvalidException`, 401 `OTP_INVALID_OR_EXPIRED`) sin revelar si el caso fue
+   código incorrecto, vencido o límite superado. Aplica al OTP de registro
+   (`registro_pendiente.intentos_fallidos`) y, por el mismo criterio, al de recuperación de
+   contraseña (Módulo C, `codigo_verificacion.intentos_fallidos`). *Por qué 3:* un OTP de
+   6 dígitos (1M combinaciones) verificado con bcrypt (~100 ms) ya es lento por diseño; 3
+   intentos dan margen a errores de tipeo del menor y reducen la ventana de fuerza bruta
+   dentro de los 10 minutos de vigencia. Resuelve el punto pendiente §5.4 #4.
+
+4. **Throttle de reenvío de OTP (P2) — aprobado.** Mínimo **60 segundos** entre envíos del
+   mismo código. Si se solicita reenvío antes, el servidor responde
+   `429 OtpResendThrottledException` (`OTP_RESEND_THROTTLED`, ya definida en
+   `exceptions/ModuleExtensions.kt`). *Por qué 60 s:* es la ventana mínima en que un correo
+   SMTP suele entregarse; 30 s haría que el reenvío llegue antes que el original, y ventanas
+   mayores entorpecen el flujo legítimo de "código vencido".
+
+5. **Migración `V2__otp_resend_tracking.sql` (P3) — aprobada.** Agrega
+   `ultimo_envio_en DATETIME NULL` a `registro_pendiente` para soportar P2. El esquema V1 no
+   tiene campo de "último envío": `creado_en` es auditoría de alta (no debe reescribirse en
+   un reenvío) y `expira_en` se resetea a `now + 10 min` en cada envío, así que ninguno sirve
+   de referencia. Queda **solo** para `registro_pendiente`; la columna equivalente de
+   `codigo_verificacion` se decide al implementar el Módulo C.
+
+6. **Tabla de OTP (`codigo_verificacion`) — resuelta (ex-propuesta §5.4 #3).** La tabla
+   existe desde `V1__init_schema.sql` y está documentada en `docs/DICCIONARIO_DATOS.md`.
+   El nombre final quedó **`codigo_verificacion`** (singular), no `codigos_verificacion`
+   (plural) como se nombraba en la propuesta original. El OTP de registro no usa esta
+   tabla: vive en `registro_pendiente.codigo_hash`; `codigo_verificacion` es exclusiva del
+   flujo de recuperación de contraseña (Módulo C).
+
+7. **Avatar personalizado (Módulo I) — aprobado 2026-08-05 (decisión del propietario).**
+   El backend almacena la imagen de avatar personalizado subida desde la galería del
+   dispositivo, ampliando el alcance cerrado de CLAUDE.md §2/§8.1. **Endpoint:** subida y
+   servido **post-verificación** — `PUT /api/v1/users/me/avatar` (multipart, autenticado,
+   reemplaza el avatar actual) y `GET /api/v1/users/me/avatar` (autenticado). La imagen
+   **no** se sube durante el registro: en ese punto solo existe `registro_pendiente`, que
+   puede expirar sin verificarse, y una subida temprana generaría archivos huérfanos
+   (mismo problema que la limpieza lazy de V2, aplicado a archivos). **Storage:** disco
+   local del servidor detrás de la interfaz `AvatarStorage` (`LocalDiskAvatarStorage`,
+   directorio `AVATAR_STORAGE_DIR`). *Por qué disco local sobre nube (S3/Cloudinary/Azure
+   Blob):* volumen y tamaño pequeños (avatares ≤ 2 MB), despliegue de una sola instancia,
+   y **cero dependencias nuevas** — disco local usa solo el core de Ktor (multipart +
+   respuesta binaria); las alternativas exigen SDKs pesados (AWS/Azure) o un tercero
+   (Cloudinary) que además vería la foto de un menor. La interfaz permite migrar a S3 más
+   adelante sin rediseño. **Seguridad:** whitelist `jpeg/png/webp` validada por
+   `Content-Type` **y** *magic bytes* (más sanity-check de decodificación), tamaño máximo
+   **2 MB**, nombres de archivo **opacos** (UUID/`SecureRandom`, nunca el nombre del
+   cliente), y URL **autenticada** — es la foto de un menor, dato sensible (CLAUDE.md §6);
+   el cliente Android nativo puede mandar `Authorization` en el `GET`. **Retención:** el
+   archivo se **conserva** ante soft-delete, consistente con REQ-FUN-05 y CLAUDE.md §7 (los
+   datos del menor no se borran físicamente; borrar el archivo dejaría además un enlace
+   roto en `usuario.avatar`). **Limpieza de huérfanos:** subir un avatar nuevo vía `PUT`
+   borra el archivo anterior, y si el usuario **vuelve de una foto personalizada a uno de
+   los 3 preestablecidos** vía `PATCH /api/v1/users/me`, el archivo previamente subido
+   también se borra automáticamente (mismo criterio de limpieza). **No forma parte de
+   CU-12.** *Mecanismo para distinguir, en el valor persistido, preset vs foto subida:
+   pendiente de decisión (análisis aparte).*
+
 **Pendientes de aprobación:**
 
-3. **Tabla de OTP (`codigos_verificacion`) — PROPUESTA, aún no aprobada.** El diccionario
-   de datos oficial no define ninguna tabla para códigos OTP (es un vacío del diccionario,
-   igual que ya se marcó en el mapa de módulos). Este documento la nombra
-   `codigos_verificacion` (snake_case en español, consistente con `usuarios`, `acudientes`,
-   `progreso_usuario`, `ajustes_usuario`, `comentarios`) **solo para unificar la
-   referencia**; el esquema final y su aprobación quedan pendientes.
-4. **Límite de intentos fallidos de verificación de OTP — sin resolver.** Ningún REQ-FUN lo
-   exige explícitamente, pero un código de 6 dígitos es vulnerable a fuerza bruta dentro de
-   la ventana de 10 minutos. Debe resolverse (p. ej. N intentos fallidos → invalidar el
-   código y exigir reenvío) **antes de implementar el Módulo C**.
-5. **Almacenamiento del token puente de reseteo — PROPUESTA.** El `jti` consumido para
+8. **Almacenamiento del token puente de reseteo — PROPUESTA.** El `jti` consumido para
    garantizar single-use necesita persistencia; dónde vive (tabla nueva o columna) se
-   decidirá junto con el esquema de `codigos_verificacion`.
+   decidirá junto con el esquema de `codigo_verificacion`.
 
 ---
 

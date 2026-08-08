@@ -24,7 +24,7 @@ verifica el código de `registro_pendiente` (nunca queda en un estado a medias).
 | correo | VARCHAR(255) | No nulo, único | Correo del acudiente, usado para login y notificaciones (solo lectura) |
 | nombre_usuario | VARCHAR(60) | No nulo, único | Nombre visible en la app; editable desde "Mi cuenta" |
 | contrasena_hash | VARCHAR(255) | No nulo | Hash bcrypt de la contraseña (nunca texto plano ni cifrado reversible) |
-| avatar | VARCHAR(255) | Nulo permitido | URL/referencia de la imagen de perfil; editable |
+| avatar | VARCHAR(255) | Nulo permitido | Referencia (storage key) de la imagen personalizada subida vía Módulo I; NULL = el usuario tiene un avatar preestablecido, cuya selección es responsabilidad exclusiva del cliente y no se persiste en el servidor |
 | intentos_login_fallidos | TINYINT UNSIGNED | No nulo, default 0 | Contador de intentos fallidos consecutivos de login (REQ-FUN-02) |
 | bloqueado_hasta | DATETIME | Nulo permitido | Fin del bloqueo temporal tras 5 intentos fallidos (2 min, REQ-NF-02) |
 | estado | ENUM('activo','eliminado') | No nulo, default 'activo' | Soft delete (REQ-FUN-05); una cuenta 'eliminado' no puede iniciar sesión |
@@ -65,7 +65,7 @@ Ninguna fila de `usuario` existe todavía; al verificar el código, el service c
 | fecha_nacimiento | DATE | No nulo | Fecha de nacimiento del menor (paso 1) |
 | nombre_acudiente | VARCHAR(120) | No nulo | Nombre completo del acudiente (paso 1) |
 | cedula_acudiente | VARCHAR(20) | No nulo | Cédula del acudiente (paso 1) |
-| avatar | VARCHAR(255) | Nulo permitido | Avatar elegido en el paso 2 |
+| avatar | VARCHAR(255) | Nulo permitido | Identificador del avatar preestablecido elegido en el paso 2 (constante de preset, ver Módulo A §3.1/V6); esta fila nunca contiene una foto personalizada — esa solo existe post-verificación (Módulo I) |
 | codigo_hash | VARCHAR(255) | No nulo | Hash bcrypt del código OTP de 6 dígitos enviado |
 | intentos_fallidos | TINYINT UNSIGNED | No nulo, default 0 | Intentos fallidos al verificar el código (límite de fuerza bruta) |
 | expira_en | DATETIME | No nulo | Vigencia del código (10 min, REQ-FUN-01) |

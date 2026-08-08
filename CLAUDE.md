@@ -31,15 +31,17 @@ capas con MVVM) no se desarrolla aquí, pero consume esta API vía REST.
 La arquitectura es **offline-first**: el cliente Android usa Room/SQLite para jugar y
 consultar el FAQ sin conexión. **El backend NO sirve el contenido del juego.**
 
-El backend expone **únicamente** estos cinco grupos de funcionalidad:
+El backend expone **únicamente** estos seis grupos de funcionalidad:
 
 1. Autenticación (registro, login, logout).
 2. Verificación de correo por OTP.
 3. Recuperación de contraseña.
 4. Gestión y eliminación de cuenta.
 5. Sincronización de progreso y comentarios.
+6. Almacenamiento y servicio de la imagen de avatar personalizado (decisión explícita del
+   propietario, 2026-08-05; amplía el alcance cerrado original, ver §8.1).
 
-> Si un pedido implica un endpoint fuera de estos cinco grupos (por ejemplo: servir
+> Si un pedido implica un endpoint fuera de estos seis grupos (por ejemplo: servir
 > preguntas, ranking en línea, FAQ remota), **señalarlo antes de escribir código**.
 
 ---
@@ -190,9 +192,15 @@ cliente Android o datos que llegan al backend únicamente a través de la sincro
 | REQ-FUN-13 Ajustes | Solo cliente | Las preferencias se guardan **solo en el dispositivo**; "Sincronizar ahora" dispara CU-12 |
 | REQ-FUN-14 FAQ y comentarios | Parcial | Las FAQ son locales y offline; **solo el envío de comentarios** llega al backend |
 
-**Alcance del avatar:** el avatar personalizado cargado desde el dispositivo **no se
-sincroniza** con el servidor (REQ-FUN-06, CU-12). El backend no almacena imágenes ni
-expone endpoints de subida de archivos.
+**Alcance del avatar (ampliado 2026-08-05 por decisión del propietario):** el avatar
+personalizado cargado desde la galería del dispositivo **no se sincroniza** en el
+sentido de CU-12 (la sincronización de progreso/comentarios no incluye imágenes). Sin
+embargo, el backend **sí almacena y sirve** la imagen del avatar personalizado como
+parte del Módulo I (ver §2 y `docs/ARQUITECTURA_BASE.md` §5.4 decisión 7): subida y
+servido **post-verificación**, solo con sesión autenticada, hasta 2 MB, whitelist
+`jpeg/png/webp` con doble validación (Content-Type + magic bytes) y retención ante soft
+delete. Los avatares preestablecidos de la app (3 opciones) siguen siendo lógica local
+del cliente (REQ-FUN-06).
 
 ### 8.2 Índice de trazabilidad REQ ↔ CU ↔ HU
 
