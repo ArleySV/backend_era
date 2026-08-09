@@ -6,14 +6,17 @@ import com.era.backend.database.DatabaseMigrator
 import com.era.backend.plugins.DatabaseFactory
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.ExposedAcudienteRepository
+import com.era.backend.repositories.ExposedCodigoVerificacionRepository
 import com.era.backend.repositories.ExposedConfiguracionRepository
 import com.era.backend.repositories.ExposedRegistroPendienteRepository
+import com.era.backend.repositories.ExposedTokensReseteoRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
 import com.era.backend.routes.authRoutes
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
+import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.SimpleJavaMailOtpNotifier
 import com.era.backend.services.VerificationService
@@ -45,6 +48,9 @@ fun Application.module() {
     val usuarioRepository = ExposedUsuarioRepository()
     val acudienteRepository = ExposedAcudienteRepository()
     val configuracionRepository = ExposedConfiguracionRepository()
+    // Repositorios del Módulo C (recuperación de contraseña): OTP reutilizado y token puente.
+    val codigoVerificacionRepository = ExposedCodigoVerificacionRepository()
+    val tokensReseteoRepository = ExposedTokensReseteoRepository()
 
     // Modo dev (V10/V10.1/V11): APP_DEV_MODE=true activa el OTP fijo ("123456") y el envío
     // SMTP No-Op (println en consola). Lógica VITAL para el smoke test E2E; no eliminar.
@@ -63,14 +69,29 @@ fun Application.module() {
             otpService,
             ExposedTransactionRunner,
         )
+    // Instancia única de JwtTokenService compartida entre Módulo B (sesión) y Módulo C (token puente).
+    val jwtTokenService = JwtTokenService(config.jwt)
     // Módulo B (login): emisión del token de sesión (30 días, JWT_SECRET) + reglas de login.
     val loginService =
-        LoginService(usuarioRepository, ExposedTransactionRunner, JwtTokenService(config.jwt))
+        LoginService(usuarioRepository, ExposedTransactionRunner, jwtTokenService)
+    // Módulo C (recuperación de contraseña): anti-enumeración, throttle, token puente y
+    // veto a repetir la contraseña anterior. Reutiliza el OTP del Módulo A.
+    val passwordResetService =
+        PasswordResetService(
+            usuarioRepository,
+            codigoVerificacionRepository,
+            tokensReseteoRepository,
+            otpService,
+            jwtTokenService,
+            config.jwt,
+            ExposedTransactionRunner,
+        )
 
-    val authController = AuthController(registrationService, verificationService, loginService)
+    val authController =
+        AuthController(registrationService, verificationService, loginService, passwordResetService)
 
-    // Contrato público de autenticación (Módulos A, A.1 y B): register, verify-email,
-    // resend-otp, login.
+    // Contrato público de autenticación (Módulos A, A.1, B y C): register, verify-email,
+    // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm.
     routing {
         authRoutes(authController)
     }

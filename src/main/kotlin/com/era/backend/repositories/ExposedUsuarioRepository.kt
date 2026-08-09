@@ -58,6 +58,18 @@ class ExposedUsuarioRepository : UsuarioRepository {
             ?.let { aFila(it) }
 
     /**
+     * Lock de escritura sobre la fila del usuario por id (Módulo C, paso 3):
+     * `SELECT ... FOR UPDATE` serializa reseteos concurrentes y cubre la lectura del hash
+     * actual para el veto a repetir la contraseña anterior (REQ-FUN-07 CA5).
+     */
+    override fun findByIdForUpdate(idUsuario: Long): UsuarioRow? =
+        UsuarioTable.selectAll()
+            .where { UsuarioTable.idUsuario eq idUsuario.toInt() }
+            .forUpdate(ForUpdateOption.ForUpdate)
+            .firstOrNull()
+            ?.let { aFila(it) }
+
+    /**
      * Verifica si [nombreUsuario] ya está en uso. Aplica a cuentas activas y eliminadas:
      * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01).
      * Sin loguear datos de la fila (CLAUDE.md §6).
@@ -104,6 +116,16 @@ class ExposedUsuarioRepository : UsuarioRepository {
         UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
             it[UsuarioTable.intentosLoginFallidos] = intentosLoginFallidos.toUByte()
             it[UsuarioTable.bloqueadoHasta] = bloqueadoHasta
+        }
+    }
+
+    /**
+     * Persiste el nuevo hash bcrypt de la contraseña (Módulo C, paso 3). Espejo de
+     * `actualizarEstadoLogin`; no toca `actualizado_en` (coherente con el Módulo B).
+     */
+    override fun actualizarContrasena(idUsuario: Long, contrasenaHash: String) {
+        UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
+            it[UsuarioTable.contrasenaHash] = contrasenaHash
         }
     }
 

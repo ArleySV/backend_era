@@ -3,7 +3,6 @@ package com.era.backend.services
 import com.era.backend.exceptions.ConflictException
 import com.era.backend.exceptions.EmailAlreadyRegisteredException
 import com.era.backend.exceptions.EmailLockedException
-import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.dto.RegisterResponseDto
@@ -12,6 +11,7 @@ import com.era.backend.models.entities.RegistroPendienteRow
 import com.era.backend.repositories.RegistroPendienteRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.repositories.UsuarioRepository
+import com.era.backend.utils.PasswordPolicy
 import com.era.backend.utils.Validators
 import java.time.LocalDateTime
 
@@ -60,7 +60,8 @@ class RegistrationService(
      */
     fun register(request: RegisterRequestDto): RegisterResponseDto {
         // Regla de negocio pura: se resuelve antes de abrir cualquier transacción.
-        validarPoliticaContrasena(request)
+        // Compartida con el Módulo C vía utils/PasswordPolicy (decisión C-6, aprobada).
+        PasswordPolicy.validar(request.contrasena, request.nombreUsuario, request.nombreMenor)
 
         val code = otpService.generate()
 
@@ -116,55 +117,5 @@ class RegistrationService(
         // Envío FUERA de la transacción: no se mantiene la conexión/transacción durante el SMTP.
         otpService.send(request.correo, code)
         return RegisterResponseDto(MENSAJE_EXITO)
-    }
-
-    /**
-     * Política de contraseña (REQ-FUN-01 CA2, V3): ≥8 caracteres y ≤72 (tope técnico de
-     * bcrypt para evitar truncamiento silencioso), mayúscula, minúscula, número y símbolo;
-     * ≠ `nombreUsuario`; no debe contener el `nombreMenor` ni los tokens del nombre
-     * (case-insensitive). Falla → [ValidationException] con `details` por regla.
-     *
-     * Regla de negocio del service (NO del controller): no se decide en la capa de forma.
-     */
-    private fun validarPoliticaContrasena(request: RegisterRequestDto) {
-        val contrasena = request.contrasena
-        val errores = mutableListOf<FieldError>()
-
-        if (contrasena.length < 8) {
-            errores += FieldError("contrasena", "Debe tener al menos 8 caracteres.")
-        }
-        if (contrasena.length > 72) {
-            errores += FieldError("contrasena", "Máximo 72 caracteres.")
-        }
-        if (!contrasena.any { it.isUpperCase() }) {
-            errores += FieldError("contrasena", "Debe incluir al menos una mayúscula.")
-        }
-        if (!contrasena.any { it.isLowerCase() }) {
-            errores += FieldError("contrasena", "Debe incluir al menos una minúscula.")
-        }
-        if (!contrasena.any { it.isDigit() }) {
-            errores += FieldError("contrasena", "Debe incluir al menos un número.")
-        }
-        if (!contrasena.any { !it.isLetterOrDigit() && !it.isWhitespace() }) {
-            errores += FieldError("contrasena", "Debe incluir al menos un símbolo.")
-        }
-        if (contrasena.equals(request.nombreUsuario, ignoreCase = true)) {
-            errores += FieldError("contrasena", "No puede ser igual al nombre de usuario.")
-        }
-
-        // V3 (interpretación mínima): el nombre del menor o cualquiera de sus tokens no debe
-        // aparecer en la contraseña. Se filtran tokens < 3 caracteres para no sobrerestringir
-        // contra conectores ("de", "y", "a") ni letras sueltas.
-        val tokensDelNombre = request.nombreMenor
-            .trim()
-            .split(Regex("\\s+"))
-            .filter { it.length >= 3 }
-        if (tokensDelNombre.isNotEmpty() && tokensDelNombre.any { contrasena.contains(it, ignoreCase = true) }) {
-            errores += FieldError("contrasena", "No puede contener datos personales.")
-        }
-
-        if (errores.isNotEmpty()) {
-            throw ValidationException("La contraseña no cumple la política de seguridad.", errores)
-        }
     }
 }

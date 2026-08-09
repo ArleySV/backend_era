@@ -50,11 +50,12 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 83 tests** que cubren el flujo de autenticación, verificación de correo y
-  login (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
-  `LoginServiceTest`, `AuthControllerTest`, `AuthControllerVerificationTest`,
-  `AuthControllerLoginTest`), la validación de forma y negocio, el manejo centralizado de
-  errores (`ErrorHandlingTest`) y la carga de configuración (`ConfigLoadTest`).
+- **Suite actual: 124 tests** que cubren el flujo de autenticación, verificación de correo,
+  login y recuperación de contraseña (`RegistrationServiceTest`, `OtpServiceTest`,
+  `VerificationServiceTest`, `LoginServiceTest`, `PasswordResetServiceTest`,
+  `AuthControllerTest`, `AuthControllerVerificationTest`, `AuthControllerLoginTest`,
+  `AuthControllerPasswordResetTest`), la validación de forma y negocio, el manejo
+  centralizado de errores (`ErrorHandlingTest`) y la carga de configuración (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
 
@@ -188,6 +189,11 @@ desincronizarse.
   con limpieza lazy), error genérico anti-enumeración con hash dummy por timing (B-4),
   soft delete evaluado solo tras contraseña correcta (B-5) y emisión del JWT de sesión de
   30 días (`JwtTokenService`, HS256, `sub`/`iss`/`aud`/`jti`).
+- **Módulo C (Recuperación de contraseña) completo:** `POST /api/v1/auth/password-reset/request`
+  (OTP anti-enumeración C-1, throttle 60 s C-2), `/verify` (P1 3 fallos invalidan, single-use
+  del OTP, token puente JWT de 10 min single-use con doble vínculo `jti`+`sub` C-3) y
+  `/confirm` (política compartida C-6, veto a repetir la contraseña anterior REQ-FUN-07 CA5).
+  Todo el acceso a datos en transacción; SMTP y emisión JWT fuera de la transacción.
 - **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
@@ -198,7 +204,12 @@ desincronizarse.
 |---|---|
 | `POST /api/v1/auth/register` | Registro del menor y su acudiente + envío del OTP de 6 dígitos al correo. Valida la forma (V4–V9) y las reglas de negocio (unicidad de correo/usuario V1, limpieza lazy V2, política de contraseña CA2/V3), crea el registro pendiente con hash bcrypt (contraseña + OTP, vigencia 10 min) y responde `201 Created` con `{ "message": ... }`. |
 | `POST /api/v1/auth/login` | Inicio de sesión por **usuario o correo** (B-1) con contraseña. Tras 5 intentos fallidos consecutivos bloquea la cuenta 2 min (423 `ACCOUNT_LOCKED`); emite un **JWT de sesión de 30 días** (`sub` = id del usuario, `iss`/`aud`/`jti` configurables) y responde `200 OK` con `{ "token": ... }`. Errores genéricos (401 `INVALID_CREDENTIALS`) que no revelan qué campo falló ni si la cuenta existe; cuentas en soft delete con credenciales válidas → 403 `ACCOUNT_INACTIVE`. |
+| `POST /api/v1/auth/password-reset/request` | Paso 1 de la recuperación: solicita un OTP de 6 dígitos (vigencia 10 min) para el correo. Responde **siempre** `200 OK` con el mismo mensaje genérico exista o no la cuenta (anti-enumeración C-1, REQ-FUN-07 CA4); reenvíos antes de 60 s → 429 `OTP_RESEND_THROTTLED` (C-2). |
+| `POST /api/v1/auth/password-reset/verify` | Paso 2: verifica el OTP (máx. 3 fallos P1, single-use del código) y, si es correcto, responde `200 OK` con un **token puente JWT de 10 min single-use** (`{ "resetToken": ... }`, C-3). Errores → 401 `OTP_INVALID_OR_EXPIRED` genérico. |
+| `POST /api/v1/auth/password-reset/confirm` | Paso 3: valida el token puente (firma/iss/aud/purpose/vigencia/single-use/doble vínculo `jti`+`sub`, C-3), exige la política compartida de contraseña (400, C-6) y el veto a repetir la anterior (409 `PASSWORD_REUSED`, REQ-FUN-07 CA5). Consume el token y responde `200 OK`; 401 `RESET_TOKEN_INVALID` genérico ante token inválido/vencido/usado. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
-`details` por campo) / `INVALID_REQUEST`, y `409` `EMAIL_ALREADY_REGISTERED`,
-`EMAIL_LOCKED` o `CONFLICT`.
+`details` por campo) / `INVALID_REQUEST`, `401` `INVALID_CREDENTIALS` /
+`OTP_INVALID_OR_EXPIRED` / `RESET_TOKEN_INVALID`, `409` `EMAIL_ALREADY_REGISTERED`,
+`EMAIL_LOCKED`, `PASSWORD_REUSED` o `CONFLICT`, `423` `ACCOUNT_LOCKED` y `429`
+`OTP_RESEND_THROTTLED`.

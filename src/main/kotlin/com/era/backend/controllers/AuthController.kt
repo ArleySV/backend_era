@@ -3,10 +3,14 @@ package com.era.backend.controllers
 import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.dto.LoginRequestDto
+import com.era.backend.models.dto.PasswordResetConfirmRequestDto
+import com.era.backend.models.dto.PasswordResetRequestDto
+import com.era.backend.models.dto.PasswordResetVerifyRequestDto
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.dto.ResendOtpRequestDto
 import com.era.backend.models.dto.VerifyEmailRequestDto
 import com.era.backend.services.LoginService
+import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
 import com.era.backend.utils.AvatarPreset
@@ -17,15 +21,17 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 
 /**
- * Handler de los endpoints de autenticación (register, verify-email, resend-otp, login).
+ * Handler de los endpoints de autenticación (register, verify-email, resend-otp, login,
+ * password-reset/request, password-reset/verify, password-reset/confirm).
  * Valida la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las
- * reglas de negocio en [RegistrationService], [VerificationService] y [LoginService].
- * No decide políticas de negocio.
+ * reglas de negocio en [RegistrationService], [VerificationService], [LoginService] y
+ * [PasswordResetService]. No decide políticas de negocio.
  */
 class AuthController(
     private val registrationService: RegistrationService,
     private val verificationService: VerificationService,
     private val loginService: LoginService,
+    private val passwordResetService: PasswordResetService,
 ) {
 
     /**
@@ -218,6 +224,124 @@ class AuthController(
         }
 
         val respuesta = loginService.login(request)
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/password-reset/request` (Módulo C, REQ-FUN-07, CU-03,
+     * HU-07; `modulo-c-analisis.md` §4).
+     *
+     * Validaciones de forma: `correo` obligatorio con formato email (≤ 255, normalizado a
+     * minúsculas V5). La anti-enumeración (200 genérico ante correo inexistente/eliminado,
+     * C-1), el throttle de 60 s (C-2) y la generación/envío del OTP son reglas del service.
+     *
+     * Respuestas del service (mapeadas por StatusPages): 200 genérico, 429 reenvío
+     * limitado.
+     */
+    suspend fun solicitarReseteo(call: ApplicationCall): Unit {
+        val request = call.receive<PasswordResetRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.correo.isBlank()) errores += FieldError("correo", "Es obligatorio.")
+        if (request.correo.isNotBlank() && request.correo.length > 255) {
+            errores += FieldError("correo", "Máximo 255 caracteres.")
+        }
+        if (request.correo.isNotBlank() && !Validators.isValidEmail(request.correo)) {
+            errores += FieldError("correo", "Formato de correo inválido.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de solicitud inválidos.", errores)
+        }
+
+        val respuesta =
+            passwordResetService.solicitarReseteo(request.copy(correo = request.correo.lowercase()))
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/password-reset/verify` (Módulo C, REQ-FUN-07, CU-03).
+     *
+     * Validaciones de forma: `correo` (obligatorio, ≤ 255, formato email, normalizado a
+     * minúsculas V5) y `codigo` obligatorio de exactamente 6 dígitos (misma regla de
+     * forma que verify-email). La coincidencia, vigencia, P1 y la emisión single-use del
+     * token puente son reglas del service.
+     *
+     * Respuestas del service (mapeadas por StatusPages): 200 con token puente, 401
+     * genérico (C-1), 429 reenvío limitado.
+     */
+    suspend fun verificarReseteo(call: ApplicationCall): Unit {
+        val request = call.receive<PasswordResetVerifyRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.correo.isBlank()) errores += FieldError("correo", "Es obligatorio.")
+        if (request.correo.isNotBlank() && request.correo.length > 255) {
+            errores += FieldError("correo", "Máximo 255 caracteres.")
+        }
+        if (request.correo.isNotBlank() && !Validators.isValidEmail(request.correo)) {
+            errores += FieldError("correo", "Formato de correo inválido.")
+        }
+
+        if (request.codigo.isBlank()) {
+            errores += FieldError("codigo", "Es obligatorio.")
+        } else if (!CODIGO_OTP_REGEX.matches(request.codigo)) {
+            errores += FieldError("codigo", "Debe ser un código de 6 dígitos.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de verificación inválidos.", errores)
+        }
+
+        val respuesta =
+            passwordResetService.verificarReseteo(request.copy(correo = request.correo.lowercase()))
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/password-reset/confirm` (Módulo C, REQ-FUN-07, CU-03).
+     *
+     * Validaciones de forma: `resetToken` obligatorio (sin espacios en blanco),
+     * `nuevaContrasena` obligatoria y ≤ 72 (tope técnico de bcrypt, espejo de login),
+     * `confirmarContrasena` obligatoria y coincidente con `nuevaContrasena`.
+     *
+     * La validación del token puente (firma/emissor/audiencia/purpose/vigencia/single-use/
+     * vínculo con el usuario, C-3), el veto a repetir la contraseña anterior (C-4) y la
+     * política de contraseña son reglas del service; aquí solo se valida la forma.
+     *
+     * Respuestas del service (mapeadas por StatusPages): 200 con `mensaje`, 400
+     * validación (forma o política), 401 token inválido/vencido/consumido (genérico),
+     * 409 contraseña reutilizada.
+     */
+    suspend fun confirmarReseteo(call: ApplicationCall): Unit {
+        val request = call.receive<PasswordResetConfirmRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.resetToken.isBlank()) {
+            errores += FieldError("resetToken", "Es obligatorio.")
+        }
+
+        if (request.nuevaContrasena.isBlank()) {
+            errores += FieldError("nuevaContrasena", "Es obligatoria.")
+        } else if (request.nuevaContrasena.length > 72) {
+            errores += FieldError("nuevaContrasena", "Máximo 72 caracteres.")
+        }
+
+        if (request.confirmarContrasena.isBlank()) {
+            errores += FieldError("confirmarContrasena", "Es obligatoria.")
+        }
+
+        if (request.confirmarContrasena.isNotBlank() && request.confirmarContrasena != request.nuevaContrasena) {
+            errores += FieldError("confirmarContrasena", "No coincide con nuevaContrasena.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de restablecimiento inválidos.", errores)
+        }
+
+        val respuesta = passwordResetService.confirmarReseteo(request)
         call.respond(HttpStatusCode.OK, respuesta)
     }
 

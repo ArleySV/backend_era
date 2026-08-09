@@ -31,6 +31,8 @@ class FakeUsuarioRepository : UsuarioRepository {
     override fun findByUsernameForUpdate(nombreUsuario: String): UsuarioRow? =
         porCorreo.values.firstOrNull { it.nombreUsuario.equals(nombreUsuario, ignoreCase = true) }
 
+    override fun findByIdForUpdate(idUsuario: Long): UsuarioRow? = findById(idUsuario)
+
     override fun existsByUsername(nombreUsuario: String): Boolean =
         porCorreo.values.any { it.nombreUsuario == nombreUsuario }
 
@@ -56,5 +58,15 @@ class FakeUsuarioRepository : UsuarioRepository {
                 intentosLoginFallidos = intentosLoginFallidos,
                 bloqueadoHasta = bloqueadoHasta,
             )
+    }
+
+    /**
+     * Espejo en memoria de `actualizarContrasena` (Módulo C): muta el hash de la fila para
+     * que `PasswordResetServiceTest` pueda assertar el cambio y el veto a repetir la
+     * contraseña anterior.
+     */
+    override fun actualizarContrasena(idUsuario: Long, contrasenaHash: String) {
+        val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
+        porCorreo[existente.correo] = existente.copy(contrasenaHash = contrasenaHash)
     }
 }

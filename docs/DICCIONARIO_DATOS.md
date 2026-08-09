@@ -86,6 +86,7 @@ usuario ya existe en este punto. La verificación de correo del registro usa
 | codigo_hash | VARCHAR(255) | No nulo | Hash bcrypt del código de 6 dígitos (nunca texto plano) |
 | intentos_fallidos | TINYINT UNSIGNED | No nulo, default 0 | Límite de fuerza bruta contra el código |
 | expira_en | DATETIME | No nulo | Vigencia de 10 minutos (REQ-FUN-07) |
+| ultimo_envio_en | DATETIME | Nulo permitido | Último envío del OTP de recuperación (throttle P2, 60 s; migración V3/C-2) |
 | usado | TINYINT(1) | No nulo, default 0 | Marca de uso único (single-use) |
 | creado_en | DATETIME | No nulo, default CURRENT_TIMESTAMP | Auditoría |
 

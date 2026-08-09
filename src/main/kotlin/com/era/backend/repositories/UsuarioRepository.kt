@@ -73,6 +73,16 @@ interface UsuarioRepository {
     fun findByUsernameForUpdate(nombreUsuario: String): UsuarioRow?
 
     /**
+     * Lectura del usuario por id con **lock de escritura** (`SELECT ... FOR UPDATE`) para
+     * el cambio de contraseña (Módulo C, paso 3). Serializa reseteos concurrentes del
+     * mismo usuario y hace atómica la secuencia leer-hash actual → verificar reuso →
+     * actualizar contraseña dentro de la transacción de `PasswordResetService`.
+     *
+     * Seguridad (CLAUDE.md §6): nunca loguear `contrasena_hash` de la fila.
+     */
+    fun findByIdForUpdate(idUsuario: Long): UsuarioRow?
+
+    /**
      * Persiste el estado de login del usuario (Módulo B, §5): el contador de intentos
      * fallidos consecutivos y la ventana de bloqueo. Un solo método cubre todos los
      * casos de escritura: incremento por fallo, apertura de ventana al 5.º fallo (B-3),
@@ -87,4 +97,14 @@ interface UsuarioRepository {
         intentosLoginFallidos: Int,
         bloqueadoHasta: LocalDateTime?,
     )
+
+    /**
+     * Persiste el nuevo hash bcrypt de la contraseña (Módulo C, paso 3, REQ-FUN-07). Se
+     * usa tras validar el token puente de reseteo y la política de contraseña. Nunca
+     * loguear el hash ni derivar la contraseña original (CLAUDE.md §6).
+     *
+     * Debe ejecutarse dentro de la transacción de `PasswordResetService` junto con la
+     * marcación de consumido del token, para que el cambio y el single-use sean atómicos.
+     */
+    fun actualizarContrasena(idUsuario: Long, contrasenaHash: String)
 }

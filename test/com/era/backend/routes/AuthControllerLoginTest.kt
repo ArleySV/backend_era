@@ -11,14 +11,17 @@ import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.FakeAcudienteRepository
+import com.era.backend.repositories.FakeCodigoVerificacionRepository
 import com.era.backend.repositories.FakeConfiguracionRepository
 import com.era.backend.repositories.FakeRegistroPendienteRepository
+import com.era.backend.repositories.FakeTokensReseteoRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
+import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
 import io.ktor.client.request.post
@@ -67,7 +70,17 @@ class AuthControllerLoginTest {
             )
         val loginService =
             LoginService(fakeUsuario, TransactionRunner { it() }, JwtTokenService(JWT_CONFIG_TEST))
-        return AuthController(registrationService, verificationService, loginService)
+        val passwordResetService =
+            PasswordResetService(
+                fakeUsuario,
+                FakeCodigoVerificacionRepository(),
+                FakeTokensReseteoRepository(),
+                otpService,
+                JwtTokenService(JWT_CONFIG_TEST),
+                JWT_CONFIG_TEST,
+                TransactionRunner { it() },
+            )
+        return AuthController(registrationService, verificationService, loginService, passwordResetService)
     }
 
     private fun usuario(
