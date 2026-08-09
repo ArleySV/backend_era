@@ -27,5 +27,7 @@ class ConfigLoadTest {
         assertEquals("PASSWORD_RESET", cfg.jwt.resetPurpose)
         assertTrue(cfg.jwt.secret.isNotBlank())
         assertTrue(cfg.mail.host.isNotBlank())
+        // V11: devMode refleja APP_DEV_MODE del entorno (default false), nunca deriva de JWT_SECRET.
+        assertEquals(System.getenv("APP_DEV_MODE") == "true", cfg.devMode)
     }
 }

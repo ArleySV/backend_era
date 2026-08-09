@@ -90,6 +90,7 @@ class RegistrationService(
                 throw ConflictException("El nombre de usuario ya está en uso.")
             }
 
+            val ahora = LocalDateTime.now()
             val fila = RegistroPendienteRow(
                 idRegistro = 0L, // lo asigna la BD (auto-increment)
                 correo = request.correo,
@@ -103,8 +104,11 @@ class RegistrationService(
                 avatar = request.avatar,
                 codigoHash = otpService.hash(code),
                 intentosFallidos = 0,
-                expiraEn = LocalDateTime.now().plusMinutes(VIGENCIA_OTP_MINUTOS),
-                creadoEn = LocalDateTime.now(), // la BD sobreescribe con su CURRENT_TIMESTAMP
+                expiraEn = ahora.plusMinutes(VIGENCIA_OTP_MINUTOS),
+                // P2/P3: el envío del alta también se registra, para que el throttle de
+                // reenvío (60 s) sea efectivo desde el primer código.
+                ultimoEnvioEn = ahora,
+                creadoEn = ahora, // la BD sobreescribe con su CURRENT_TIMESTAMP
             )
             registroRepository.insert(fila)
         }

@@ -1,12 +1,24 @@
 package com.era.backend
 
 import com.era.backend.config.loadAppConfig
+import com.era.backend.controllers.AuthController
 import com.era.backend.database.DatabaseMigrator
 import com.era.backend.plugins.DatabaseFactory
 import com.era.backend.plugins.configurePlugins
+import com.era.backend.repositories.ExposedAcudienteRepository
+import com.era.backend.repositories.ExposedConfiguracionRepository
+import com.era.backend.repositories.ExposedRegistroPendienteRepository
+import com.era.backend.repositories.ExposedTransactionRunner
+import com.era.backend.repositories.ExposedUsuarioRepository
+import com.era.backend.routes.authRoutes
+import com.era.backend.services.OtpService
+import com.era.backend.services.RegistrationService
+import com.era.backend.services.SimpleJavaMailOtpNotifier
+import com.era.backend.services.VerificationService
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.netty.EngineMain
+import io.ktor.server.routing.routing
 
 fun main(args: Array<String>) {
     EngineMain.main(args)
@@ -15,7 +27,8 @@ fun main(args: Array<String>) {
 fun Application.module() {
     configurePlugins()
 
-    val dataSource = DatabaseFactory.createDataSource(loadAppConfig().database)
+    val config = loadAppConfig()
+    val dataSource = DatabaseFactory.createDataSource(config.database)
 
     monitor.subscribe(ApplicationStopped) {
         DatabaseFactory.close(dataSource)
@@ -25,6 +38,34 @@ fun Application.module() {
     DatabaseMigrator.migrate(dataSource)
     DatabaseFactory.connectExposed(dataSource)
 
-    // El enrutado de ERA (auth, OTP, recuperación, cuenta, sincronización)
-    // se registrará en los próximos módulos.
+    // Composición de dependencias del Módulo A/A.1: repositorios Exposed → services → controller.
+    val registroRepository = ExposedRegistroPendienteRepository()
+    val usuarioRepository = ExposedUsuarioRepository()
+    val acudienteRepository = ExposedAcudienteRepository()
+    val configuracionRepository = ExposedConfiguracionRepository()
+
+    // Modo dev (V10/V10.1/V11): APP_DEV_MODE=true activa el OTP fijo ("123456") y el envío
+    // SMTP No-Op (println en consola). Lógica VITAL para el smoke test E2E; no eliminar.
+    val esModoDev = config.devMode
+    val notifier = SimpleJavaMailOtpNotifier(config.mail, modoNoOp = esModoDev)
+    val otpService = OtpService(notifier, otpDeterminista = esModoDev)
+
+    val registrationService =
+        RegistrationService(registroRepository, usuarioRepository, otpService, ExposedTransactionRunner)
+    val verificationService =
+        VerificationService(
+            registroRepository,
+            usuarioRepository,
+            acudienteRepository,
+            configuracionRepository,
+            otpService,
+            ExposedTransactionRunner,
+        )
+
+    val authController = AuthController(registrationService, verificationService)
+
+    // Contrato público de autenticación (Módulos A y A.1): register, verify-email, resend-otp.
+    routing {
+        authRoutes(authController)
+    }
 }

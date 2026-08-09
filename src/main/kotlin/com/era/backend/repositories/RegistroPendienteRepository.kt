@@ -1,6 +1,7 @@
 package com.era.backend.repositories
 
 import com.era.backend.models.entities.RegistroPendienteRow
+import java.time.LocalDateTime
 
 /**
  * Acceso a datos de `registro_pendiente` (ARQUITECTURA_BASE.md §2.4).
@@ -58,4 +59,41 @@ interface RegistroPendienteRepository {
      * delete, no a pendientes expirados).
      */
     fun deleteExpiredByUsername(nombreUsuario: String)
+
+    /**
+     * Busca el registro pendiente por correo tomando un **lock de escritura** sobre la
+     * fila (`SELECT ... FOR UPDATE`). Es la barrera anti-TOCTOU de la verificación de
+     * correo (A.1): serializa verificaciones concurrentes del mismo correo para que solo
+     * una consuma el pendiente; las demás ven `null` al re-leer tras el commit.
+     *
+     * Debe ejecutarse dentro de la misma transacción que inserta/borra (la provee
+     * `VerificationService` vía `TransactionRunner`).
+     */
+    fun findByEmailForUpdate(correo: String): RegistroPendienteRow?
+
+    /**
+     * Consume el registro pendiente tras una verificación exitosa: el pendiente deja de
+     * existir porque sus datos pasaron a `usuario` + `acudiente` + `configuracion`
+     * (V1:55-57). Solo se invoca dentro de la transacción de conversión.
+     */
+    fun deleteById(idRegistro: Long)
+
+    /**
+     * Persiste el contador de intentos fallidos de verificación (P1). Se usa al fallar la
+     * verificación del OTP para registrar el fallo **antes** de responder; el throw de la
+     * excepción ocurre fuera de la transacción para que este incremento se commitee.
+     */
+    fun actualizarIntentosFallidos(idRegistro: Long, nuevosIntentos: Int)
+
+    /**
+     * Reenvío de OTP (P2): emite un código nuevo (hash bcrypt), reinicia `expira_en` a
+     * `now + 10 min`, pone `intentos_fallidos` en 0 (el código anterior queda invalidado)
+     * y registra [ahora] como último envío (`ultimo_envio_en`) para el throttle de 60 s.
+     */
+    fun actualizarCodigoReenvio(
+        idRegistro: Long,
+        codigoHash: String,
+        expiraEn: LocalDateTime,
+        ahora: LocalDateTime,
+    )
 }

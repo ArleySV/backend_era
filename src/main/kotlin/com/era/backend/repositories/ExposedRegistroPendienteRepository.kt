@@ -6,9 +6,11 @@ import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.core.less
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
 import java.time.LocalDateTime
 
 /**
@@ -43,6 +45,7 @@ class ExposedRegistroPendienteRepository : RegistroPendienteRepository {
             it[RegistroPendienteTable.codigoHash] = row.codigoHash
             it[RegistroPendienteTable.intentosFallidos] = row.intentosFallidos.toUByte()
             it[RegistroPendienteTable.expiraEn] = row.expiraEn
+            it[RegistroPendienteTable.ultimoEnvioEn] = row.ultimoEnvioEn
         }) get RegistroPendienteTable.idRegistro
         return id.toLong()
     }
@@ -94,6 +97,55 @@ class ExposedRegistroPendienteRepository : RegistroPendienteRepository {
         }
     }
 
+    /**
+     * Lock de escritura sobre la fila del pendiente (A.1): `SELECT ... FOR UPDATE`
+     * serializa verificaciones concurrentes del mismo correo. Debe ejecutarse dentro de
+     * la transacción de conversión (`VerificationService`).
+     */
+    override fun findByEmailForUpdate(correo: String): RegistroPendienteRow? =
+        RegistroPendienteTable.selectAll()
+            .where { RegistroPendienteTable.correo eq correo }
+            .forUpdate(ForUpdateOption.ForUpdate)
+            .firstOrNull()
+            ?.let { aFila(it) }
+
+    /**
+     * Consume el pendiente tras una verificación exitosa (la conversión a
+     * `usuario`/`acudiente`/`configuracion` ocurrió en la misma transacción).
+     */
+    override fun deleteById(idRegistro: Long) {
+        RegistroPendienteTable.deleteWhere { RegistroPendienteTable.idRegistro eq idRegistro.toInt() }
+    }
+
+    /**
+     * Persiste el contador de intentos fallidos de verificación (P1). El throw de la
+     * excepción de dominio ocurre FUERA de la transacción del service para que este
+     * incremento se commitee (un throw interno haría rollback de todo el bloque).
+     */
+    override fun actualizarIntentosFallidos(idRegistro: Long, nuevosIntentos: Int) {
+        RegistroPendienteTable.update({ RegistroPendienteTable.idRegistro eq idRegistro.toInt() }) {
+            it[RegistroPendienteTable.intentosFallidos] = nuevosIntentos.toUByte()
+        }
+    }
+
+    /**
+     * Reenvío de OTP (P2): nuevo hash del código, vigencia `+10 min`, contador a 0 y
+     * `ultimo_envio_en = ahora` para el throttle de 60 s.
+     */
+    override fun actualizarCodigoReenvio(
+        idRegistro: Long,
+        codigoHash: String,
+        expiraEn: LocalDateTime,
+        ahora: LocalDateTime,
+    ) {
+        RegistroPendienteTable.update({ RegistroPendienteTable.idRegistro eq idRegistro.toInt() }) {
+            it[RegistroPendienteTable.codigoHash] = codigoHash
+            it[RegistroPendienteTable.expiraEn] = expiraEn
+            it[RegistroPendienteTable.intentosFallidos] = 0u
+            it[RegistroPendienteTable.ultimoEnvioEn] = ahora
+        }
+    }
+
     private fun aFila(fila: ResultRow): RegistroPendienteRow =
         RegistroPendienteRow(
             idRegistro = fila[RegistroPendienteTable.idRegistro].toLong(),
@@ -108,6 +160,7 @@ class ExposedRegistroPendienteRepository : RegistroPendienteRepository {
             codigoHash = fila[RegistroPendienteTable.codigoHash],
             intentosFallidos = fila[RegistroPendienteTable.intentosFallidos].toInt(),
             expiraEn = fila[RegistroPendienteTable.expiraEn],
+            ultimoEnvioEn = fila[RegistroPendienteTable.ultimoEnvioEn],
             creadoEn = fila[RegistroPendienteTable.creadoEn],
         )
 }

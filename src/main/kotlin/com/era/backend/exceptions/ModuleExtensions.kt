@@ -30,3 +30,7 @@ class PasswordReuseException(message: String) :
 /** Reenvío de OTP solicitado demasiado pronto (política definida en Módulo A.1). */
 class OtpResendThrottledException(message: String) :
     DomainException(HttpStatusCode.TooManyRequests, "OTP_RESEND_THROTTLED", message)
+
+/** Correo ya verificado: el pendiente fue consumido y la cuenta está activa (A.1). */
+class EmailAlreadyVerifiedException(message: String) :
+    ConflictException(message, "EMAIL_ALREADY_VERIFIED")

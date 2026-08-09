@@ -5,12 +5,15 @@ import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.plugins.configurePlugins
+import com.era.backend.repositories.FakeAcudienteRepository
+import com.era.backend.repositories.FakeConfiguracionRepository
 import com.era.backend.repositories.FakeRegistroPendienteRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
 import com.era.backend.services.OtpService
 import com.era.backend.services.RegistrationService
+import com.era.backend.services.VerificationService
 import io.ktor.client.request.post
 import io.ktor.client.request.setBody
 import io.ktor.client.statement.bodyAsText
@@ -56,14 +59,24 @@ class AuthControllerTest {
         val fakeRegistro = FakeRegistroPendienteRepository()
         seedUsuario(fakeUsuario)
         seedPendiente(fakeRegistro)
+        val otpService = OtpService(FakeOtpNotifier())
         val service =
             RegistrationService(
                 fakeRegistro,
                 fakeUsuario,
-                OtpService(FakeOtpNotifier()),
+                otpService,
                 TransactionRunner { it() },
             )
-        return AuthController(service)
+        val verificationService =
+            VerificationService(
+                fakeRegistro,
+                fakeUsuario,
+                FakeAcudienteRepository(),
+                FakeConfiguracionRepository(),
+                otpService,
+                TransactionRunner { it() },
+            )
+        return AuthController(service, verificationService)
     }
 
     private fun usuarioActivo(correo: String = "laura.perez@example.com"): UsuarioRow =

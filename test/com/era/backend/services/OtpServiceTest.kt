@@ -26,6 +26,14 @@ class OtpServiceTest {
     }
 
     @Test
+    fun `en modo determinista generate devuelve siempre 123456 (V10 dev)`() {
+        val dev = OtpService(FakeOtpNotifier(), otpDeterminista = true)
+        val valores = (1..20).map { dev.generate() }
+        assertTrue(valores.all { it == "123456" })
+        assertTrue(valores.distinct().size == 1)
+    }
+
+    @Test
     fun `hash genera hash bcrypt que verifica el codigo`() {
         val hash = service.hash("123456")
         assertTrue(hash.startsWith("\$2"), "Debe ser un hash bcrypt (prefijo \$2)")

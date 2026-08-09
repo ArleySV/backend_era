@@ -10,8 +10,20 @@ import java.time.LocalDateTime
  * `verify-email`/`resend-otp`) y el C (recuperación de contraseña) (`modulo-a-analisis.md`
  * §5). Genera, hashea, envía y verifica el código. La política de intentos fallidos (P1,
  * ARQUITECTURA_BASE.md §5.4 #3) vive aquí, no en el repositorio.
+ *
+ * **Modo determinista (solo dev, V10/V11):** cuando [otpDeterminista] es `true`, `generate()`
+ * devuelve siempre `"123456"`. El flag lo activa `Application.module()` únicamente cuando
+ * `APP_DEV_MODE=true` (`AppConfig.devMode`, default `false`), así que la producción y los
+ * tests siguen usando `SecureRandom`.
+ *
+ * ⚠ **VITAL para la Base de Trazabilidad de Calidad (V11):** la lógica de APP_DEV_MODE
+ * sostiene el smoke test E2E (`scripts/smoke_test.ps1`, OTP fijo `"123456"`). NO eliminar
+ * ni renombrar en refactorizaciones futuras.
  */
-class OtpService(private val notifier: OtpNotifier) {
+class OtpService(
+    private val notifier: OtpNotifier,
+    private val otpDeterminista: Boolean = false,
+) {
 
     private val secureRandom = SecureRandom()
 
@@ -20,16 +32,21 @@ class OtpService(private val notifier: OtpNotifier) {
         private const val COSTE_BCRYPT = 12
 
         /** Política P1: máx. 3 intentos fallidos consecutivos; al superarlos, el código queda invalidado. */
-        private const val MAX_INTENTOS_FALLIDOS = 3
+        const val MAX_INTENTOS_FALLIDOS = 3
 
         /** Mensaje genérico: no revela si el código era incorrecto, vencido o agotado (ARQUITECTURA_BASE.md §5.3). */
         private const val MENSAJE_INVALIDO = "El código de verificación es inválido o ha expirado."
     }
 
     /**
-     * Genera un OTP de 6 dígitos numéricos con `SecureRandom` (REQ-FUN-01 CA4).
+     * Genera un OTP de 6 dígitos numéricos con `SecureRandom` (REQ-FUN-01 CA4). En modo
+     * determinista (dev, V10) devuelve siempre `"123456"` para que el smoke test de humo
+     * no dependa de leer el correo; nunca se usa en producción.
      */
-    fun generate(): String = "%06d".format(secureRandom.nextInt(1_000_000))
+    fun generate(): String {
+        if (otpDeterminista) return "123456"
+        return "%06d".format(secureRandom.nextInt(1_000_000))
+    }
 
     /**
      * Hashea el código con bcrypt (hash de un solo sentido, HU-15 CA3). El código nunca

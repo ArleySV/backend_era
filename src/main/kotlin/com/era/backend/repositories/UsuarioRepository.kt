@@ -32,4 +32,16 @@ interface UsuarioRepository {
      * Sin loguear datos de la fila (CLAUDE.md §6).
      */
     fun existsByUsername(nombreUsuario: String): Boolean
+
+    /**
+     * Persiste un usuario. En el Módulo A.1 se usa en la conversión transaccional de
+     * `registro_pendiente` → `usuario` + `acudiente` + `configuracion` (V1:55-57): la
+     * fila se crea solo cuando el OTP se verificó, con estado `ACTIVO` y el hash bcrypt
+     * de la contraseña ya calculado en el registro.
+     *
+     * Seguridad (CLAUDE.md §6): nunca loguear correo, cédula ni `contrasena_hash`.
+     *
+     * @return id del usuario creado (para las filas 1:1 de `acudiente` y `configuracion`).
+     */
+    fun insert(row: UsuarioRow): Long
 }

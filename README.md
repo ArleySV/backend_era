@@ -50,12 +50,61 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 38 tests** que cubren el flujo de autenticación (`RegistrationServiceTest`,
-  `OtpServiceTest`, `AuthControllerTest`), la validación de forma y negocio, el manejo
-  centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
-  (`ConfigLoadTest`).
+- **Suite actual: 61 tests** que cubren el flujo de autenticación y verificación de correo
+  (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
+  `AuthControllerTest`, `AuthControllerVerificationTest`), la validación de forma y
+  negocio, el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de
+  configuración (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
+
+#### Pruebas de Humo (E2E)
+Valida el flujo completo **Register → Verify** contra un servidor en ejecución, incluida
+la persistencia real en `usuario` / `acudiente` / `configuracion` (Base de Trazabilidad
+de Calidad, V11).
+
+**Guía de ejecución (dos terminales):**
+
+1. *Terminal 1 — servidor*: define las variables de entorno y levanta el backend. El
+   servidor **queda corriendo en primer plano** (no "termina"; es el comportamiento
+   esperado; detener con `Ctrl+C`):
+   ```powershell
+   $env:PORT='8080'
+   $env:JWT_SECRET='<secreto_dev>'
+   $env:APP_DEV_MODE='true'
+   $env:DB_HOST='localhost'; $env:DB_PORT='3306'; $env:DB_NAME='era_db'
+   $env:DB_USER='<usuario>'; $env:DB_PASSWORD='<password>'
+   $env:SMTP_HOST='<placeholder>'; $env:SMTP_PORT='587'
+   $env:SMTP_USER='x'; $env:SMTP_PASSWORD='x'; $env:SMTP_FROM='x@era.local'
+   .\kotlin run
+   ```
+   Espera el log `Responding at http://127.0.0.1:8080`.
+2. *Terminal 2 — prueba*: define las credenciales de BD (no se heredan de la otra
+   terminal) y ejecuta el smoke test:
+   ```powershell
+   $env:DB_HOST='localhost'; $env:DB_PORT='3306'; $env:DB_NAME='era_db'
+   $env:DB_USER='<usuario>'; $env:DB_PASSWORD='<password>'
+   powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\smoke_test.ps1
+   ```
+   Salida esperada: `[1/5] Servidor OK` → `[2/5] Limpieza OK` → `[3/5] 201 OK` →
+   `[4/5] 200 OK` → `[5/5] BD OK` → `[FINAL] SMOKE TEST PASS` (exit 0).
+
+**Por qué es importante `APP_DEV_MODE="true"` en el entorno de desarrollo:**
+- Activa el **OTP fijo `123456`** (`OtpService` en modo determinista) y el **envío SMTP
+  No-Op** (`SimpleJavaMailOtpNotifier` imprime el código en consola sin conectarse a un
+  servidor de correo). Sin este flag, el smoke test no podría verificar el código (no hay
+  SMTP real en dev) y `register` fallaría al intentar enviar el correo.
+- Es **solo para desarrollo**: en producción `APP_DEV_MODE` debe estar ausente o en
+  `false`; el OTP real usa `SecureRandom` y el SMTP envía de verdad. No deriva del
+  `JWT_SECRET` (decisión V11).
+
+**Requisitos técnicos del script:**
+- Servidor levantado en `http://localhost:$PORT`.
+- `mysql.exe` accesible en el `PATH` (MySQL Server 8.0): el script limpia datos previos
+  del usuario de prueba y valida la persistencia SQL.
+- El script hace *preflight* (`GET /`), limpia `test@example.com` / `test_user`, registra,
+  verifica con `123456` y solo imprime el PASS final si el `INNER JOIN` sobre
+  `usuario` / `acudiente` / `configuracion` devuelve exactamente `1` fila.
 
 ### 3. Migraciones de base de datos
 - **Implementado: Flyway.** `org.flywaydb:flyway-core` + `org.flywaydb:flyway-mysql`
@@ -129,8 +178,14 @@ desincronizarse.
 - Proyecto funcional: `GET /` responde y el build compila.
 - **Módulo A (Registro) completo:** `POST /api/v1/auth/register` operativo, con
   validaciones de forma (V4–V9) en el controller y de negocio (V1–V3, política de
-  contraseña CA2) en el service; capa de datos sobre Exposed/Flyway (12 tablas) y suite
-  de tests en verde.
+  contraseña CA2) en el service.
+- **Módulo A.1 (Verificación de correo) completo:** `POST /api/v1/auth/verify-email` y
+  `POST /api/v1/auth/resend-otp` operativos — conversión transaccional pendiente → cuenta,
+  políticas P1 (3 fallos invalidan el OTP) y P2 (60 s entre reenvíos), anti-enumeración y
+  SMTP fuera de transacción.
+- **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2 aplicadas).
+- **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
+  persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
 
 ## Endpoints de la API (v1)
 

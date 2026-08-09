@@ -5,6 +5,7 @@ import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.models.entities.UsuarioTable
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 
 /**
@@ -38,6 +39,27 @@ class ExposedUsuarioRepository : UsuarioRepository {
             .where { UsuarioTable.nombreUsuario eq nombreUsuario }
             .limit(1)
             .firstOrNull() != null
+
+    /**
+     * Persiste un usuario (A.1, conversión transaccional): solo se escribe lo que no
+     * tiene default (estado explícito `ACTIVO`, `intentos_login_fallidos` 0 y
+     * `bloqueado_hasta` NULL); `creado_en`/`actualizado_en` los asigna la base.
+     */
+    override fun insert(row: UsuarioRow): Long {
+        val id =
+            (UsuarioTable.insert {
+                it[UsuarioTable.nombreMenor] = row.nombreMenor
+                it[UsuarioTable.fechaNacimiento] = row.fechaNacimiento
+                it[UsuarioTable.correo] = row.correo
+                it[UsuarioTable.nombreUsuario] = row.nombreUsuario
+                it[UsuarioTable.contrasenaHash] = row.contrasenaHash
+                it[UsuarioTable.avatar] = row.avatar
+                it[UsuarioTable.intentosLoginFallidos] = row.intentosLoginFallidos.toUByte()
+                it[UsuarioTable.bloqueadoHasta] = row.bloqueadoHasta
+                it[UsuarioTable.estado] = row.estado.valor
+            }) get UsuarioTable.idUsuario
+        return id.toLong()
+    }
 
     private fun aFila(fila: ResultRow): UsuarioRow =
         UsuarioRow(

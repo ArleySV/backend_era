@@ -40,6 +40,8 @@ fun ApplicationConfig.toAppConfig(): AppConfig {
                 password = path("mail.password"),
                 from = path("mail.from"),
             ),
+        // V11: switch explícito de entorno, NO derivado del JWT_SECRET. Default false.
+        devMode = System.getenv("APP_DEV_MODE") == "true",
     )
 }
 

@@ -4,10 +4,12 @@ import com.era.backend.models.entities.RegistroPendienteRow
 import java.time.LocalDateTime
 
 /**
- * Fake en memoria de [RegistroPendienteRepository] para unit tests del Módulo A. Reproduce
- * el contrato que usa `RegistrationService` (insert, findByEmail, findByUsername,
- * deleteExpiredByEmail, deleteExpiredByUsername) y aplica la misma lógica de expiración
- * que la implementación Exposed (V2: solo se borra si `expiraEn` ya pasó).
+ * Fake en memoria de [RegistroPendienteRepository] para unit tests de los Módulos A y
+ * A.1. Reproduce el contrato que usan `RegistrationService` (insert, findByEmail,
+ * findByUsername, deleteExpiredByEmail, deleteExpiredByUsername) y `VerificationService`
+ * (findByEmailForUpdate, deleteById, actualizarIntentosFallidos,
+ * actualizarCodigoReenvio), incluyendo la misma lógica de expiración que la
+ * implementación Exposed (V2: solo se borra si `expiraEn` ya pasó).
  */
 class FakeRegistroPendienteRepository : RegistroPendienteRepository {
 
@@ -38,6 +40,35 @@ class FakeRegistroPendienteRepository : RegistroPendienteRepository {
 
     override fun deleteExpiredByUsername(nombreUsuario: String) {
         filas.removeAll { it.nombreUsuario == nombreUsuario && it.expiraEn.isBefore(LocalDateTime.now()) }
+    }
+
+    override fun findByEmailForUpdate(correo: String): RegistroPendienteRow? = findByEmail(correo)
+
+    override fun deleteById(idRegistro: Long) {
+        filas.removeAll { it.idRegistro == idRegistro }
+    }
+
+    override fun actualizarIntentosFallidos(idRegistro: Long, nuevosIntentos: Int) {
+        val idx = filas.indexOfFirst { it.idRegistro == idRegistro }
+        if (idx >= 0) filas[idx] = filas[idx].copy(intentosFallidos = nuevosIntentos)
+    }
+
+    override fun actualizarCodigoReenvio(
+        idRegistro: Long,
+        codigoHash: String,
+        expiraEn: LocalDateTime,
+        ahora: LocalDateTime,
+    ) {
+        val idx = filas.indexOfFirst { it.idRegistro == idRegistro }
+        if (idx >= 0) {
+            filas[idx] =
+                filas[idx].copy(
+                    codigoHash = codigoHash,
+                    expiraEn = expiraEn,
+                    intentosFallidos = 0,
+                    ultimoEnvioEn = ahora,
+                )
+        }
     }
 
     fun size(): Int = filas.size

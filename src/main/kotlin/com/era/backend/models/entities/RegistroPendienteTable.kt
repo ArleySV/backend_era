@@ -14,8 +14,8 @@ import java.time.LocalDateTime
  * fila de `usuario` existe todavía (`modulo-a-analisis.md` §2). El OTP de registro vive
  * en [codigoHash] como hash bcrypt, nunca en texto plano (HU-15 CA3).
  *
- * Nota: la columna `ultimo_envio_en` (migración V2/P3, ARQUITECTURA_BASE.md §5.4 #5) se
- * agrega en la iteración del Módulo A.1; aquí solo las columnas de V1.
+ * [ultimoEnvioEn] (migración V2/P3, ARQUITECTURA_BASE.md §5.4 #5) soporta el throttle
+ * de reenvío de OTP (P2, 60 s): se escribe en el alta y en cada reenvío.
  */
 object RegistroPendienteTable : Table("registro_pendiente") {
     val idRegistro = integer("id_registro").autoIncrement()
@@ -30,6 +30,7 @@ object RegistroPendienteTable : Table("registro_pendiente") {
     val codigoHash = varchar("codigo_hash", 255)
     val intentosFallidos = ubyte("intentos_fallidos").default(0u)
     val expiraEn = datetime("expira_en")
+    val ultimoEnvioEn = datetime("ultimo_envio_en").nullable()
     val creadoEn = datetime("creado_en").defaultExpression(CurrentDateTime)
 
     override val primaryKey = PrimaryKey(idRegistro)
@@ -54,5 +55,6 @@ data class RegistroPendienteRow(
     val codigoHash: String,
     val intentosFallidos: Int,
     val expiraEn: LocalDateTime,
+    val ultimoEnvioEn: LocalDateTime? = null,
     val creadoEn: LocalDateTime,
 )

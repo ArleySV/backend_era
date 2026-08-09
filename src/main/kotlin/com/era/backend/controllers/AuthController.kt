@@ -3,7 +3,10 @@ package com.era.backend.controllers
 import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.dto.RegisterRequestDto
+import com.era.backend.models.dto.ResendOtpRequestDto
+import com.era.backend.models.dto.VerifyEmailRequestDto
 import com.era.backend.services.RegistrationService
+import com.era.backend.services.VerificationService
 import com.era.backend.utils.AvatarPreset
 import com.era.backend.utils.Validators
 import io.ktor.http.HttpStatusCode
@@ -12,11 +15,14 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 
 /**
- * Handler de `POST /api/v1/auth/register`. Valida la forma del input (primera barrera,
- * ARQUITECTURA_BASE.md §2.2) y delega las reglas de negocio en [RegistrationService].
- * No decide políticas de negocio (unicidad, fuerza de contraseña, vigencia).
+ * Handler de los endpoints de autenticación (register, verify-email, resend-otp). Valida
+ * la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las reglas de
+ * negocio en [RegistrationService] y [VerificationService]. No decide políticas de negocio.
  */
-class AuthController(private val registrationService: RegistrationService) {
+class AuthController(
+    private val registrationService: RegistrationService,
+    private val verificationService: VerificationService,
+) {
 
     /**
      * Endpoint `POST /api/v1/auth/register` (REQ-FUN-01, CU-01, HU-01, HU-15).
@@ -105,5 +111,76 @@ class AuthController(private val registrationService: RegistrationService) {
         // Reglas de negocio (unicidad, política de contraseña) en el service; 201 Created (V7).
         val respuesta = registrationService.register(requestNormalizado)
         call.respond(HttpStatusCode.Created, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/verify-email` (Módulo A.1, REQ-FUN-01 paso 3, CU-11).
+     *
+     * Validaciones de forma: `correo` obligatorio con formato email (≤ 255, normalizado a
+     * minúsculas V5) y `codigo` obligatorio de exactamente 6 dígitos (REQ-FUN-01 CA4).
+     * La verificación (coincidencia, vigencia, P1) y la conversión transaccional son
+     * reglas de negocio del service; aquí solo se valida la forma.
+     *
+     * Respuestas del service (mapeadas por StatusPages): 200 éxito, 401 OTP inválido/
+     * expirado (genérico), 409 correo ya verificado, 404 sin pendiente.
+     */
+    suspend fun verifyEmail(call: ApplicationCall): Unit {
+        val request = call.receive<VerifyEmailRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.correo.isBlank()) errores += FieldError("correo", "Es obligatorio.")
+        if (request.correo.isNotBlank() && request.correo.length > 255) {
+            errores += FieldError("correo", "Máximo 255 caracteres.")
+        }
+        if (request.correo.isNotBlank() && !Validators.isValidEmail(request.correo)) {
+            errores += FieldError("correo", "Formato de correo inválido.")
+        }
+
+        if (request.codigo.isBlank()) {
+            errores += FieldError("codigo", "Es obligatorio.")
+        } else if (!CODIGO_OTP_REGEX.matches(request.codigo)) {
+            errores += FieldError("codigo", "Debe ser un código de 6 dígitos.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de verificación inválidos.", errores)
+        }
+
+        val respuesta = verificationService.verificarEmail(request.correo.lowercase(), request.codigo)
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/resend-otp` (Módulo A.1, P2).
+     *
+     * Validación de forma: `correo` obligatorio con formato email (≤ 255, normalizado a
+     * minúsculas V5). El throttle de 60 s (P2) y la anti-enumeración (respuesta 200
+     * genérica sin pendiente) son reglas del service.
+     */
+    suspend fun resendOtp(call: ApplicationCall): Unit {
+        val request = call.receive<ResendOtpRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.correo.isBlank()) errores += FieldError("correo", "Es obligatorio.")
+        if (request.correo.isNotBlank() && request.correo.length > 255) {
+            errores += FieldError("correo", "Máximo 255 caracteres.")
+        }
+        if (request.correo.isNotBlank() && !Validators.isValidEmail(request.correo)) {
+            errores += FieldError("correo", "Formato de correo inválido.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de reenvío inválidos.", errores)
+        }
+
+        val respuesta = verificationService.reenviarOtp(request.correo.lowercase())
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    companion object {
+        /** OTP numérico de 6 dígitos (REQ-FUN-01 CA4). Validación de forma, primera barrera. */
+        private val CODIGO_OTP_REGEX = Regex("^\\d{6}$")
     }
 }

@@ -4,6 +4,12 @@ data class AppConfig(
     val database: DatabaseConfig,
     val jwt: JwtConfig,
     val mail: MailConfig,
+    /**
+     * Modo dev (V10/V10.1/V11): OTP fijo `"123456"` + SMTP No-Op, para el smoke test E2E.
+     * Lo activa la env var `APP_DEV_MODE=true` (default `false`). Lógica VITAL para la
+     * Base de Trazabilidad de Calidad: no eliminar en refactorizaciones.
+     */
+    val devMode: Boolean = false,
 )
 
 data class DatabaseConfig(
