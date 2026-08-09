@@ -50,11 +50,11 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 61 tests** que cubren el flujo de autenticación y verificación de correo
-  (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
-  `AuthControllerTest`, `AuthControllerVerificationTest`), la validación de forma y
-  negocio, el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de
-  configuración (`ConfigLoadTest`).
+- **Suite actual: 83 tests** que cubren el flujo de autenticación, verificación de correo y
+  login (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
+  `LoginServiceTest`, `AuthControllerTest`, `AuthControllerVerificationTest`,
+  `AuthControllerLoginTest`), la validación de forma y negocio, el manejo centralizado de
+  errores (`ErrorHandlingTest`) y la carga de configuración (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
 
@@ -158,7 +158,7 @@ desincronizarse.
 |---|---|---|
 | `$ktor.server.contentNegotiation` | gestionada por Amper | Leer/escribir cuerpos JSON en los endpoints. |
 | `$ktor.serialization.kotlinx.json` | gestionada por Amper | Serialización JSON (kotlinx). |
-| `$ktor.server.auth.jwt` | gestionada por Amper | Tokens JWT para sesiones (login/logout). |
+| `$ktor.server.auth.jwt` | gestionada por Amper | Autenticación JWT de sesiones. **Módulo B (login):** en uso — `JwtTokenService` emite tokens HS256 de 30 días; trae transitivamente la librería de firma `com.auth0:java-jwt`. |
 | `$libs.bcrypt` (`at.favre.lib:bcrypt`) | 0.10.2 | Hash de un solo sentido de contraseñas (REQ-FUN-01); descartado el cifrado reversible. |
 | `$libs.simpleJavaMail` (`org.simplejavamail:simple-java-mail`) | 8.12.6 | Envío de correos OTP vía SMTP. |
 | `$libs.flyway-core` (`org.flywaydb:flyway-core`) | 12.11.0 | Migraciones versionadas de esquema. |
@@ -183,6 +183,11 @@ desincronizarse.
   `POST /api/v1/auth/resend-otp` operativos — conversión transaccional pendiente → cuenta,
   políticas P1 (3 fallos invalidan el OTP) y P2 (60 s entre reenvíos), anti-enumeración y
   SMTP fuera de transacción.
+- **Módulo B (Login) completo:** `POST /api/v1/auth/login` operativo — login por
+  usuario/correo (case-insensitive, B-6), bloqueo de 2 min tras 5 fallos (B-2/B-3, ventana
+  con limpieza lazy), error genérico anti-enumeración con hash dummy por timing (B-4),
+  soft delete evaluado solo tras contraseña correcta (B-5) y emisión del JWT de sesión de
+  30 días (`JwtTokenService`, HS256, `sub`/`iss`/`aud`/`jti`).
 - **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
@@ -192,6 +197,7 @@ desincronizarse.
 | Endpoint | Función |
 |---|---|
 | `POST /api/v1/auth/register` | Registro del menor y su acudiente + envío del OTP de 6 dígitos al correo. Valida la forma (V4–V9) y las reglas de negocio (unicidad de correo/usuario V1, limpieza lazy V2, política de contraseña CA2/V3), crea el registro pendiente con hash bcrypt (contraseña + OTP, vigencia 10 min) y responde `201 Created` con `{ "message": ... }`. |
+| `POST /api/v1/auth/login` | Inicio de sesión por **usuario o correo** (B-1) con contraseña. Tras 5 intentos fallidos consecutivos bloquea la cuenta 2 min (423 `ACCOUNT_LOCKED`); emite un **JWT de sesión de 30 días** (`sub` = id del usuario, `iss`/`aud`/`jti` configurables) y responde `200 OK` con `{ "token": ... }`. Errores genéricos (401 `INVALID_CREDENTIALS`) que no revelan qué campo falló ni si la cuenta existe; cuentas en soft delete con credenciales válidas → 403 `ACCOUNT_INACTIVE`. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
 `details` por campo) / `INVALID_REQUEST`, y `409` `EMAIL_ALREADY_REGISTERED`,

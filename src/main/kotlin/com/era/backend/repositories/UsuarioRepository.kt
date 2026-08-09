@@ -1,6 +1,7 @@
 package com.era.backend.repositories
 
 import com.era.backend.models.entities.UsuarioRow
+import java.time.LocalDateTime
 
 /**
  * Acceso a datos de `usuario` (ARQUITECTURA_BASE.md §2.4).
@@ -27,6 +28,20 @@ interface UsuarioRepository {
     fun findByEmail(correo: String): UsuarioRow?
 
     /**
+     * Lectura del usuario por correo con **lock de escritura** (`SELECT ... FOR UPDATE`)
+     * para el login (Módulo B, `modulo-b-analisis.md` §5). Serializa intentos de login
+     * concurrentes del mismo usuario: evita que dos requests lean el mismo contador de
+     * `intentos_login_fallidos` y ambos escriban el mismo valor (lost-update). El lock
+     * cubre también la posterior escritura del estado de login.
+     *
+     * Debe ejecutarse dentro de la misma transacción que escribe el estado de login
+     * (la provee `LoginService` vía `TransactionRunner`).
+     *
+     * Seguridad (CLAUDE.md §6): nunca loguear el correo ni `contrasena_hash` de la fila.
+     */
+    fun findByEmailForUpdate(correo: String): UsuarioRow?
+
+    /**
      * Verifica si [nombreUsuario] ya está en uso. Aplica a cuentas activas y eliminadas:
      * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01).
      * Sin loguear datos de la fila (CLAUDE.md §6).
@@ -44,4 +59,32 @@ interface UsuarioRepository {
      * @return id del usuario creado (para las filas 1:1 de `acudiente` y `configuracion`).
      */
     fun insert(row: UsuarioRow): Long
+
+    /**
+     * Lectura del usuario por nombre de usuario con **lock de escritura**
+     * (`SELECT ... FOR UPDATE`), para el login (B-6, `modulo-b-analisis.md` §5). La
+     * coincidencia es **case-insensitive** (espejo de la collation `utf8mb4_unicode_ci`
+     * del UNIQUE de V1): "Maria" y "maria" son el mismo usuario. Misma justificación de
+     * serialización que [findByEmailForUpdate].
+     *
+     * Debe ejecutarse dentro de la misma transacción que escribe el estado de login.
+     * Sin loguear datos de la fila (CLAUDE.md §6).
+     */
+    fun findByUsernameForUpdate(nombreUsuario: String): UsuarioRow?
+
+    /**
+     * Persiste el estado de login del usuario (Módulo B, §5): el contador de intentos
+     * fallidos consecutivos y la ventana de bloqueo. Un solo método cubre todos los
+     * casos de escritura: incremento por fallo, apertura de ventana al 5.º fallo (B-3),
+     * limpieza lazy de ventana expirada (B-2) y **reset tras éxito** (`0`, `NULL`), que
+     * debe ejecutarse de forma atómica con la autenticación.
+     *
+     * Debe ejecutarse dentro de la transacción de `LoginService`; el throw de la
+     * excepción de dominio ocurre fuera de ella para que esta escritura se commitee.
+     */
+    fun actualizarEstadoLogin(
+        idUsuario: Long,
+        intentosLoginFallidos: Int,
+        bloqueadoHasta: LocalDateTime?,
+    )
 }

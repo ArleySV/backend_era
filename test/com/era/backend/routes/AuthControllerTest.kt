@@ -1,6 +1,7 @@
 package com.era.backend.routes
 
 import com.era.backend.controllers.AuthController
+import com.era.backend.config.JwtConfig
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
@@ -11,6 +12,8 @@ import com.era.backend.repositories.FakeRegistroPendienteRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
+import com.era.backend.services.JwtTokenService
+import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
@@ -76,7 +79,13 @@ class AuthControllerTest {
                 otpService,
                 TransactionRunner { it() },
             )
-        return AuthController(service, verificationService)
+        val loginService =
+            LoginService(
+                fakeUsuario,
+                TransactionRunner { it() },
+                JwtTokenService(JWT_CONFIG_TEST),
+            )
+        return AuthController(service, verificationService, loginService)
     }
 
     private fun usuarioActivo(correo: String = "laura.perez@example.com"): UsuarioRow =
@@ -192,5 +201,20 @@ class AuthControllerTest {
             registrar(Json.encodeToString(dtoValido), seedUsuario = { it.seed(usuarioActivo()) })
         assertEquals(HttpStatusCode.Conflict, status)
         assertTrue(body.contains("\"error\":\"EMAIL_ALREADY_REGISTERED\""))
+    }
+
+    companion object {
+        /** Config JWT de test: secreto dummy, solo para firmar tokens en los tests HTTP. */
+        val JWT_CONFIG_TEST =
+            JwtConfig(
+                secret = "test-secret",
+                sessionIssuer = "era-backend",
+                sessionAudience = "era-app-session",
+                sessionExpirationMinutes = 43200,
+                resetIssuer = "era-backend",
+                resetAudience = "era-app-reset",
+                resetTtlMinutes = 10,
+                resetPurpose = "PASSWORD_RESET",
+            )
     }
 }

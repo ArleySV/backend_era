@@ -24,5 +24,6 @@ fun Route.authRoutes(authController: AuthController) {
         post("/register") { authController.register(call) }
         post("/verify-email") { authController.verifyEmail(call) }
         post("/resend-otp") { authController.resendOtp(call) }
+        post("/login") { authController.login(call) }
     }
 }

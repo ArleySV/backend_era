@@ -1,6 +1,7 @@
 package com.era.backend.routes
 
 import com.era.backend.controllers.AuthController
+import com.era.backend.config.JwtConfig
 import com.era.backend.models.dto.ResendOtpRequestDto
 import com.era.backend.models.dto.VerifyEmailRequestDto
 import com.era.backend.models.entities.EstadoUsuario
@@ -13,6 +14,8 @@ import com.era.backend.repositories.FakeRegistroPendienteRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
+import com.era.backend.services.JwtTokenService
+import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
@@ -67,7 +70,13 @@ class AuthControllerVerificationTest {
                 otpService,
                 TransactionRunner { it() },
             )
-        return AuthController(registrationService, verificationService)
+        val loginService =
+            LoginService(
+                fakeUsuario,
+                TransactionRunner { it() },
+                JwtTokenService(JWT_CONFIG_TEST),
+            )
+        return AuthController(registrationService, verificationService, loginService)
     }
 
     private fun pendiente(
@@ -240,5 +249,20 @@ class AuthControllerVerificationTest {
             reenviar(Json.encodeToString(ResendOtpRequestDto("correo-malformado")))
         assertEquals(HttpStatusCode.BadRequest, status)
         assertTrue(body.contains("\"field\":\"correo\""))
+    }
+
+    companion object {
+        /** Config JWT de test: secreto dummy, solo para firmar tokens en los tests HTTP. */
+        val JWT_CONFIG_TEST =
+            JwtConfig(
+                secret = "test-secret",
+                sessionIssuer = "era-backend",
+                sessionAudience = "era-app-session",
+                sessionExpirationMinutes = 43200,
+                resetIssuer = "era-backend",
+                resetAudience = "era-app-reset",
+                resetTtlMinutes = 10,
+                resetPurpose = "PASSWORD_RESET",
+            )
     }
 }

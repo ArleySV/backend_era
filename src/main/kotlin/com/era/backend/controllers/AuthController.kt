@@ -2,9 +2,11 @@ package com.era.backend.controllers
 
 import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
+import com.era.backend.models.dto.LoginRequestDto
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.dto.ResendOtpRequestDto
 import com.era.backend.models.dto.VerifyEmailRequestDto
+import com.era.backend.services.LoginService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
 import com.era.backend.utils.AvatarPreset
@@ -15,13 +17,15 @@ import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 
 /**
- * Handler de los endpoints de autenticación (register, verify-email, resend-otp). Valida
- * la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las reglas de
- * negocio en [RegistrationService] y [VerificationService]. No decide políticas de negocio.
+ * Handler de los endpoints de autenticación (register, verify-email, resend-otp, login).
+ * Valida la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las
+ * reglas de negocio en [RegistrationService], [VerificationService] y [LoginService].
+ * No decide políticas de negocio.
  */
 class AuthController(
     private val registrationService: RegistrationService,
     private val verificationService: VerificationService,
+    private val loginService: LoginService,
 ) {
 
     /**
@@ -176,6 +180,44 @@ class AuthController(
         }
 
         val respuesta = verificationService.reenviarOtp(request.correo.lowercase())
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/login` (Módulo B, REQ-FUN-02, CU-04, HU-02;
+     * `modulo-b-analisis.md` §4).
+     *
+     * Validaciones de forma (primera barrera):
+     * - `usuarioOCorreo`: no blanco, ≤ 255 (identificador: username o correo, B-1).
+     * - `contrasena`: no blanco, ≤ 72 (tope técnico de bcrypt).
+     *
+     * La resolución del identificador, el bloqueo, el contador, la verificación bcrypt y
+     * el estado de la cuenta son reglas de negocio del service; aquí solo se valida la
+     * forma. Respuestas del service (mapeadas por StatusPages): 200 con token, 401
+     * genérico, 403 cuenta inactiva, 423 bloqueado.
+     */
+    suspend fun login(call: ApplicationCall): Unit {
+        val request = call.receive<LoginRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.usuarioOCorreo.isBlank()) {
+            errores += FieldError("usuarioOCorreo", "Es obligatorio.")
+        } else if (request.usuarioOCorreo.length > 255) {
+            errores += FieldError("usuarioOCorreo", "Máximo 255 caracteres.")
+        }
+
+        if (request.contrasena.isBlank()) {
+            errores += FieldError("contrasena", "Es obligatoria.")
+        } else if (request.contrasena.length > 72) {
+            errores += FieldError("contrasena", "Máximo 72 caracteres.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de inicio de sesión inválidos.", errores)
+        }
+
+        val respuesta = loginService.login(request)
         call.respond(HttpStatusCode.OK, respuesta)
     }
 

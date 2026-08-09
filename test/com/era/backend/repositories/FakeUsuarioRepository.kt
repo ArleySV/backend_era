@@ -1,6 +1,7 @@
 package com.era.backend.repositories
 
 import com.era.backend.models.entities.UsuarioRow
+import java.time.LocalDateTime
 
 /**
  * Fake en memoria de [UsuarioRepository] para unit tests de los Módulos A y A.1. No toca
@@ -25,6 +26,11 @@ class FakeUsuarioRepository : UsuarioRepository {
 
     override fun findByEmail(correo: String): UsuarioRow? = porCorreo[correo]
 
+    override fun findByEmailForUpdate(correo: String): UsuarioRow? = porCorreo[correo]
+
+    override fun findByUsernameForUpdate(nombreUsuario: String): UsuarioRow? =
+        porCorreo.values.firstOrNull { it.nombreUsuario.equals(nombreUsuario, ignoreCase = true) }
+
     override fun existsByUsername(nombreUsuario: String): Boolean =
         porCorreo.values.any { it.nombreUsuario == nombreUsuario }
 
@@ -32,5 +38,23 @@ class FakeUsuarioRepository : UsuarioRepository {
         val id = if (row.idUsuario == 0L) siguienteId++ else row.idUsuario
         porCorreo[row.correo] = row.copy(idUsuario = id)
         return id
+    }
+
+    /**
+     * Espejo en memoria de `actualizarEstadoLogin`: muta la fila con el contador y la
+     * ventana indicados, para que `LoginServiceTest` (Paso 3) pueda assertar el estado
+     * tras cada intento (incremento, bloqueo, limpieza lazy y reset tras éxito).
+     */
+    override fun actualizarEstadoLogin(
+        idUsuario: Long,
+        intentosLoginFallidos: Int,
+        bloqueadoHasta: LocalDateTime?,
+    ) {
+        val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
+        porCorreo[existente.correo] =
+            existente.copy(
+                intentosLoginFallidos = intentosLoginFallidos,
+                bloqueadoHasta = bloqueadoHasta,
+            )
     }
 }

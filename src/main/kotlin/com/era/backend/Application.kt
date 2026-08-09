@@ -11,6 +11,8 @@ import com.era.backend.repositories.ExposedRegistroPendienteRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
 import com.era.backend.routes.authRoutes
+import com.era.backend.services.JwtTokenService
+import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.SimpleJavaMailOtpNotifier
@@ -61,10 +63,14 @@ fun Application.module() {
             otpService,
             ExposedTransactionRunner,
         )
+    // Módulo B (login): emisión del token de sesión (30 días, JWT_SECRET) + reglas de login.
+    val loginService =
+        LoginService(usuarioRepository, ExposedTransactionRunner, JwtTokenService(config.jwt))
 
-    val authController = AuthController(registrationService, verificationService)
+    val authController = AuthController(registrationService, verificationService, loginService)
 
-    // Contrato público de autenticación (Módulos A y A.1): register, verify-email, resend-otp.
+    // Contrato público de autenticación (Módulos A, A.1 y B): register, verify-email,
+    // resend-otp, login.
     routing {
         authRoutes(authController)
     }

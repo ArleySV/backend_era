@@ -5,8 +5,11 @@ import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.models.entities.UsuarioTable
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
+import org.jetbrains.exposed.v1.jdbc.update
+import java.time.LocalDateTime
 
 /**
  * Implementación real de [UsuarioRepository] sobre Exposed (ARQUITECTURA_BASE.md §2.4).
@@ -26,6 +29,31 @@ class ExposedUsuarioRepository : UsuarioRepository {
     override fun findByEmail(correo: String): UsuarioRow? =
         UsuarioTable.selectAll()
             .where { UsuarioTable.correo eq correo }
+            .firstOrNull()
+            ?.let { aFila(it) }
+
+    /**
+     * Lock de escritura sobre la fila del usuario por correo (Módulo B, login):
+     * `SELECT ... FOR UPDATE` serializa intentos de login concurrentes y protege el
+     * contador/ventana de bloqueo contra lost-update. Debe ejecutarse dentro de la
+     * transacción de `LoginService`.
+     */
+    override fun findByEmailForUpdate(correo: String): UsuarioRow? =
+        UsuarioTable.selectAll()
+            .where { UsuarioTable.correo eq correo }
+            .forUpdate(ForUpdateOption.ForUpdate)
+            .firstOrNull()
+            ?.let { aFila(it) }
+
+    /**
+     * Lock de escritura sobre la fila del usuario por nombre de usuario (B-6). La
+     * coincidencia es case-insensitive por la collation `utf8mb4_unicode_ci` de la
+     * columna (V1), igual que en `findByEmailForUpdate`.
+     */
+    override fun findByUsernameForUpdate(nombreUsuario: String): UsuarioRow? =
+        UsuarioTable.selectAll()
+            .where { UsuarioTable.nombreUsuario eq nombreUsuario }
+            .forUpdate(ForUpdateOption.ForUpdate)
             .firstOrNull()
             ?.let { aFila(it) }
 
@@ -59,6 +87,24 @@ class ExposedUsuarioRepository : UsuarioRepository {
                 it[UsuarioTable.estado] = row.estado.valor
             }) get UsuarioTable.idUsuario
         return id.toLong()
+    }
+
+    /**
+     * Persiste el estado de login del usuario (Módulo B, §5): contador de intentos
+     * fallidos consecutivos y ventana de bloqueo. Un solo `UPDATE` cubre incremento por
+     * fallo, apertura de ventana al 5.º fallo (B-3), limpieza lazy de ventana expirada
+     * (B-2) y reset tras éxito. Debe ejecutarse en la transacción de `LoginService`; el
+     * throw de la excepción ocurre fuera de ella para que esta escritura se commitee.
+     */
+    override fun actualizarEstadoLogin(
+        idUsuario: Long,
+        intentosLoginFallidos: Int,
+        bloqueadoHasta: LocalDateTime?,
+    ) {
+        UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
+            it[UsuarioTable.intentosLoginFallidos] = intentosLoginFallidos.toUByte()
+            it[UsuarioTable.bloqueadoHasta] = bloqueadoHasta
+        }
     }
 
     private fun aFila(fila: ResultRow): UsuarioRow =
