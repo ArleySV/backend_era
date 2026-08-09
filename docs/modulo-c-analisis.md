@@ -154,7 +154,9 @@ solicitarReseteo(request):
     return 200 genérico                                     // sin insertar ni enviar
 
   code = otpService.generate()
+  hash = otpService.hash(code); exp = now + 10min           // FUERA de la transacción (§5.1)
   transactionRunner.run {
+    deleteExpiradosPorUsuario(usuario.id)                   // limpieza lazy de tokens puente (auditoría)
     ultimo = codigoRepository.findUltimoPorUsuarioForUpdate(usuario.id)  // FOR UPDATE
     si últimoEnvío < 60 s: throw OTP_RESEND_THROTTLED       // C-2 (sin escrituras previas)
     insert o actualizarEnvio(hash, exp, now)                // reinicia P1, registra P2
@@ -216,8 +218,12 @@ Convenciones resultantes (espejo de Módulos A/B, **obligatorias** en este servi
   cómputo puro.
 - Los `throw` de excepciones de dominio se lanzan **fuera** del bloque tras marcar el
   resultado en una variable, para que la escritura previa (P1/P2) commitee.
-- El hash bcrypt nuevo se calcula **antes** de la transacción de `/confirm` (no retener la
-  conexión durante el coste bcrypt).
+- El hash bcrypt nuevo se calcula **antes** de la transacción en `/confirm` **y en
+  `/request`** (no retener la conexión durante el coste bcrypt; auditoría sobre
+  `solicitarReseteo`).
+- **Limpieza lazy de `tokens_reseteo`:** cada solicitud de reseteo (`/request`) purga los
+  tokens puente expirados del usuario dentro de la misma transacción (patrón V2); el
+  `deleteExpiradosPorUsuario` solo commitea si el envío procede.
 - **Zero logs:** nunca se loguea correo, OTP, hash, jti ni token (CLAUDE.md §6).
 
 ---

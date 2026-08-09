@@ -70,13 +70,15 @@ class PasswordResetService(
         private const val MENSAJE_TOKEN_INVALIDO = "El enlace de recuperación es inválido o ha expirado."
 
         /**
-         * Hash bcrypt **pre-calculado** de un placeholder (decisión C-1). Se verifica contra
-         * él cuando el correo no corresponde a una cuenta activa para **igualar el timing**
-         * del camino real (anti-enumeración, REQ-FUN-07 CA4): un atacante no puede distinguir
-         * por tiempo de cómputo si el correo existe. Nunca coincide con un código real y jamás
-         * se loguea.
+         * Hash bcrypt **pre-calculado** de un placeholder (decisión C-1, auditoría). Se
+         * verifica contra él cuando el correo no corresponde a una cuenta activa para
+         * **igualar el timing** del camino real (anti-enumeración, REQ-FUN-07 CA4): un
+         * atacante no puede distinguir por tiempo de cómputo si el correo existe. **Coste 12**,
+         * idéntico al de los hashes reales de OTP (`OtpService.COSTE_BCRYPT`) y al
+         * `HASH_DUMMY` del login (Módulo B): verificar contra un coste menor rompería la
+         * igualación por timing. Nunca coincide con un código real y jamás se loguea.
          */
-        private const val HASH_DUMMY = "\$2a\$10\$N9qo8uLOickgx2ZMRZoMyeIjZAgcfl7p92ldGxad68LJZdL17lhWy"
+        private const val HASH_DUMMY = "\$2a\$12\$WhxXtpvSavAyxSmz99up/.P.HslxRrGt3v3tlcxxIWKs5w1cafqFq"
     }
 
     private enum class ResultadoVerificacion {
@@ -103,9 +105,12 @@ class PasswordResetService(
      * responde 429 `OTP_RESEND_THROTTLED`. Solo aplica cuando hay un código previo (espejo
      * de `resend-otp`, decisión aprobada).
      *
-     * **Transacción:** el insert/actualización del código usa `findUltimoPorUsuarioForUpdate`
-     * (`FOR UPDATE`, C-3) para serializar solicitudes concurrentes del mismo usuario. El
-     * envío SMTP ocurre FUERA de la transacción.
+     * **Transacción:** el hash bcrypt y la expiración se calculan **FUERA** de la
+     * transacción (no retener la conexión durante el coste bcrypt, §5.1). Dentro del bloque,
+     * una **limpieza lazy de tokens puente expirados** del usuario (patrón V2, auditoría) y
+     * el insert/actualización del código usan `findUltimoPorUsuarioForUpdate` (`FOR UPDATE`,
+     * C-3) para serializar solicitudes concurrentes del mismo usuario. El envío SMTP ocurre
+     * FUERA de la transacción.
      */
     fun solicitarReseteo(request: PasswordResetRequestDto): PasswordResetResponseDto {
         // Exposed exige contexto transaccional incluso para el SELECT (sin él:
@@ -123,19 +128,28 @@ class PasswordResetService(
         }
 
         val code = otpService.generate()
+        // Hash bcrypt y expiración calculados FUERA de la transacción (auditoría, §5.1):
+        // no se retiene la conexión durante el coste bcrypt (~200 ms), mismo criterio que
+        // `/confirm`. Si el throttle aborta, se habrá consumido un hash inútil pero ninguna
+        // conexión quedó retenida.
+        val codigoHash = otpService.hash(code)
+        val ahora = LocalDateTime.now()
+        val expiraEn = ahora.plusMinutes(VIGENCIA_OTP_MINUTOS)
         transactionRunner.run {
+            // Limpieza lazy de tokens puente expirados (patrón V2, auditoría): cada solicitud
+            // de reseteo purga los tokens vencidos del usuario; commitea solo si el envío
+            // procede (un throttle hace rollback de todo el bloque).
+            tokenRepository.deleteExpiradosPorUsuario(activo.idUsuario)
+
             val ultimo = codigoRepository.findUltimoPorUsuarioForUpdate(activo.idUsuario)
-            val ahora = LocalDateTime.now()
             val ultimoEnvio = ultimo?.ultimoEnvioEn
             if (ultimoEnvio != null &&
                 Duration.between(ultimoEnvio, ahora).seconds < THROTTLE_REENVIO_SEGUNDOS
             ) {
-                // Sin escrituras previas en la transacción: el throw no pierde nada.
+                // Sin escrituras previas de OTP en la transacción: el throw no pierde nada.
                 throw OtpResendThrottledException("Reintenta el envío en unos segundos.")
             }
 
-            val codigoHash = otpService.hash(code)
-            val expiraEn = ahora.plusMinutes(VIGENCIA_OTP_MINUTOS)
             if (ultimo != null) {
                 // Reenvío: nuevo hash, reinicia intentos (P1) y registra el envío (P2).
                 codigoRepository.actualizarEnvio(ultimo.idCodigo, codigoHash, expiraEn, ahora)

@@ -222,6 +222,20 @@ class PasswordResetServiceTest {
         assertEquals(1, ctx.envios.size)
     }
 
+    @Test
+    fun `solicitar reseteo purga los tokens puente expirados del usuario (limpieza lazy)`() {
+        val ctx = contexto(
+            seedUsuario = { it.seed(usuario()) },
+            seedTokens = {
+                it.seed(token(jti = "jti-expirado", expiraEn = LocalDateTime.now().minusMinutes(5)))
+                it.seed(token(jti = "jti-vigente").copy(idToken = 2L))
+            },
+        )
+        ctx.servicio.solicitarReseteo(PasswordResetRequestDto("laura.perez@example.com"))
+        assertEquals(1, ctx.tokens.size(), "los tokens vencidos se purgan; los vigentes se conservan")
+        assertEquals("jti-vigente", ctx.tokens.ultimoDe(1L)!!.jti)
+    }
+
     // ── Paso 2: verificarReseteo ───────────────────────────────────────────────────────
 
     @Test
