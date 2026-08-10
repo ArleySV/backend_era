@@ -240,10 +240,13 @@ del cliente (REQ-FUN-06).
 
 **Esquema de base de datos**
 
-- Migración Flyway `resources/db/migration/V1__init_schema.sql` con el esquema
-  aprobado en revisión conjunta (12 tablas): `usuario`, `acudiente`,
+- Migraciones Flyway en `resources/db/migration/`: `V1__init_schema.sql` (esquema
+  aprobado en revisión conjunta, 12 tablas: `usuario`, `acudiente`,
   `registro_pendiente`, `codigo_verificacion`, `tokens_reseteo`, `configuracion`,
-  `comentario`, `nivel`, `pregunta`, `opcion_respuesta`, `progreso_usuario`, `intento`.
+  `comentario`, `nivel`, `pregunta`, `opcion_respuesta`, `progreso_usuario`, `intento`),
+  `V2__otp_resend_tracking.sql` (tracking de reenvíos de OTP) y
+  `V3__codigo_verificacion_ultimo_envio.sql` (política de reenvío). Aplicadas al
+  esquema real (`flyway_schema_history` con V1+V2+V3).
 - `scripts/init_schema.sql`: DDL autocontenido para ejecución manual en MySQL
   Workbench; es `V1__init_schema.sql` más `CREATE DATABASE IF NOT EXISTS` y
   `USE era_db` iniciales (única diferencia).
@@ -258,13 +261,63 @@ del cliente (REQ-FUN-06).
 
 - Proyecto Amper (no Gradle): `module.yaml` + `libs.versions.toml`, wrapper
   `kotlin`/`kotlin.bat`.
-- `src/main/kotlin/com/era/backend/`: `Application.kt`, `config/`
-  (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
-  `MigrateRunner`). **Sin endpoints implementados todavía.**
+- `src/main/kotlin/com/era/backend/` con endpoints implementados de los Módulos
+  A, A.1, B, C, D y E (ver detalle abajo):
+  - `Application.kt` — wiring completo: `configureAuthentication(config.jwt)`
+    antes de `routing {}`, `configurePlugins`, `userRoutes` y `authRoutes`.
+  - `config/` (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
+    `MigrateRunner`), `plugins/` (`AuthenticationConfig`, `DatabaseFactory`,
+    `StatusPagesConfig`).
+  - `models/` (`SesionPrincipal`), `models/dto/` (14 DTOs: register, verify,
+    resend, login, password-reset ×3, perfil, eliminar, mensaje, …),
+    `models/entities/` (tablas Exposed).
+  - `exceptions/` (`CoreExceptions`, `DomainException`, `ErrorDto`,
+    `ModuleExtensions`), `repositories/` (interfaces + impls Exposed +
+    `TransactionRunner`), `services/` (`RegistrationService`, `OtpService`,
+    `VerificationService`, `LoginService`, `PasswordResetService`,
+    `JwtTokenService`, `UsuarioService`, notificadores SMTP),
+    `controllers/` (`AuthController`, `UsuarioController`),
+    `routes/` (`AuthRoutes`, `UserRoutes`), `utils/` (`Validators`,
+    `PasswordPolicy`, `AvatarPreset`).
+- **Módulos implementados y verificados** (tests automáticos + pruebas manuales):
+  - **A (Registro):** `POST /api/v1/auth/register` — validaciones de forma (V4–V9)
+    y negocio (V1–V3, política de contraseña), pendiente + OTP hasheado (10 min).
+  - **A.1 (Verificación):** `POST /api/v1/auth/verify-email` y `resend-otp` —
+    conversión transaccional, P1 (3 fallos invalidan), P2 (60 s), anti-enumeración.
+  - **B (Login):** `POST /api/v1/auth/login` — JWT de sesión HS256 (30 días),
+    bloqueo 2 min tras 5 fallos, error genérico anti-enumeración.
+  - **C (Recuperación):** `password-reset/request|verify|confirm` — OTP + token
+    puente JWT single-use (10 min), veto a repetir la contraseña anterior.
+  - **D (Perfil):** `GET /api/v1/users/me` — mínimo privilegio (5 campos),
+    protegido por el proveedor JWT `session-jwt` (`verifier` con audiencia
+    `era-app-session` + `validate` que rechaza tokens de reseteo + `challenge`
+    401 `UNAUTHORIZED`).
+  - **E (Eliminación):** `DELETE /api/v1/users/me` — soft delete por estado con
+    reverificación bcrypt fuera de transacción y guarda anti-carrera.
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
-  kotlinx.json, auth JWT), logback, bcrypt, simpleJavaMail, Flyway (core + mysql),
-  mysql-connector-j.
-- Scripts auxiliares en `scripts/`: `dev.ps1`, `lint.ps1`, `migrate.ps1`.
+  kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
+  bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
+- Scripts auxiliares en `scripts/`: `dev.ps1` (recarga automática), `lint.ps1`
+  (ktlint), `migrate.ps1` (Flyway), `smoke_test.ps1` (E2E register→verify) y
+  `password_reset_test.ps1` (E2E recuperación de contraseña).
 
-**Próximos pasos (sugeridos):** implementar el Módulo A (registro) capa por capa:
-rutas → servicio → repositorio (Exposed) sobre la migración V1.
+**Tests**
+
+- **144 tests automáticos** (`.\kotlin test`, 16 suites): service y route tests de
+  registro, verificación, login, recuperación, perfil y eliminación de cuenta,
+  más manejo de errores y carga de configuración. Verificado con env vars
+  placeholder de `.env.example` (`ConfigLoadTest` las exige).
+- **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
+  y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
+  `password_reset_test.ps1` (flujo completo de recuperación).
+- **Pruebas manuales en terminal verificadas** para D/E contra MySQL real: flujo
+  completo register→verify→login→`GET /me`→`DELETE /me`, más los casos de error
+  (401 sin token, 401 `INVALID_CREDENTIALS`, 400 `VALIDATION_ERROR`, 403
+  `ACCOUNT_INACTIVE`).
+
+**Próximos pasos (sugeridos):**
+- Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).
+- Módulo I (avatar personalizado, §8.1): subida y servido post-verificación, solo
+  con sesión autenticada, hasta 2 MB, whitelist `jpeg/png/webp` con doble
+  validación.
+- Sincronización de progreso y comentarios (CU-12) capa por capa.
