@@ -1,6 +1,7 @@
 package com.era.backend.routes
 
 import com.era.backend.controllers.AuthController
+import io.ktor.server.auth.authenticate
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.post
 import io.ktor.server.routing.route
@@ -31,6 +32,12 @@ fun Route.authRoutes(authController: AuthController) {
      *
      * `POST /api/v1/auth/password-reset/confirm` — validación del token puente y cambio
      * de contraseña con veto a repetir la anterior (Módulo C, C-4).
+     *
+     * `POST /api/v1/auth/logout` — cierre de sesión (Módulo F, REQ-FUN-04, CU-05).
+     * Único endpoint de `auth` que requiere sesión: vive en su propio bloque
+     * `authenticate("session-jwt")` (ARQUITECTURA_BASE.md §3: el proveedor JWT se aplica
+     * a los módulos D/E/F/G/H, no a A/A.1/B/C). Sin token válido, el `challenge` responde
+     * 401 `UNAUTHORIZED` (D-6).
      */
     route("/api/v1/auth") {
         post("/register") { authController.register(call) }
@@ -40,5 +47,10 @@ fun Route.authRoutes(authController: AuthController) {
         post("/password-reset/request") { authController.solicitarReseteo(call) }
         post("/password-reset/verify") { authController.verificarReseteo(call) }
         post("/password-reset/confirm") { authController.confirmarReseteo(call) }
+
+        // Módulo F (logout): el cierre de sesión requiere una sesión vigente.
+        authenticate("session-jwt") {
+            post("/logout") { authController.logout(call) }
+        }
     }
 }

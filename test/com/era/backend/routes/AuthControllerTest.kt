@@ -5,6 +5,7 @@ import com.era.backend.config.JwtConfig
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
+import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.FakeAcudienteRepository
 import com.era.backend.repositories.FakeCodigoVerificacionRepository
@@ -16,6 +17,7 @@ import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
+import com.era.backend.services.LogoutService
 import com.era.backend.services.OtpService
 import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
@@ -98,7 +100,7 @@ class AuthControllerTest {
                 JWT_CONFIG_TEST,
                 TransactionRunner { it() },
             )
-        return AuthController(service, verificationService, loginService, passwordResetService)
+        return AuthController(service, verificationService, loginService, passwordResetService, LogoutService())
     }
 
     private fun usuarioActivo(correo: String = "laura.perez@example.com"): UsuarioRow =
@@ -126,6 +128,7 @@ class AuthControllerTest {
         testApplication {
             application {
                 configurePlugins()
+                configureAuthentication(JWT_CONFIG_TEST)
                 routing { authRoutes(controller(seedUsuario = seedUsuario)) }
             }
             val response =

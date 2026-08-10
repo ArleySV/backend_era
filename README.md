@@ -50,12 +50,13 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 144 tests** que cubren el flujo de autenticación, verificación de correo,
-  login, recuperación de contraseña y perfil/eliminación de cuenta
+- **Suite actual: 152 tests** que cubren el flujo de autenticación, verificación de correo,
+  login, recuperación de contraseña, cierre de sesión y perfil/eliminación de cuenta
   (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
-  `LoginServiceTest`, `PasswordResetServiceTest`, `UsuarioServiceTest`,
-  `AuthControllerTest`, `AuthControllerVerificationTest`, `AuthControllerLoginTest`,
-  `AuthControllerPasswordResetTest`, `UserRoutesTest`), la validación de forma y negocio,
+  `LoginServiceTest`, `PasswordResetServiceTest`, `LogoutServiceTest`,
+  `UsuarioServiceTest`, `AuthControllerTest`, `AuthControllerVerificationTest`,
+  `AuthControllerLoginTest`, `AuthControllerPasswordResetTest`,
+  `AuthControllerLogoutTest`, `UserRoutesTest`), la validación de forma y negocio,
   el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
   (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
@@ -208,9 +209,15 @@ desincronizarse.
   (segunda transacción con relock `FOR UPDATE` + comprobación de estado activo). Errores:
   401 `INVALID_CREDENTIALS` (contraseña incorrecta) y 403 `ACCOUNT_INACTIVE` (ya eliminada).
   El correo queda bloqueado para nuevos registros (REQ-FUN-05 CA6).
+- **Módulo F (Cierre de sesión) completo:** `POST /api/v1/auth/logout` operativo —
+  **logout stateless** (ARQUITECTURA_BASE §5.4 #2): la invalidación del token es
+  responsabilidad del cliente Android; el backend solo **confirma formalmente** el cierre
+  (200 `MensajeResponseDto`) y registra el evento en el log INFO con `idUsuario` (nunca el
+  token ni datos personales). Sin BD, sin blacklist, idempotente; único endpoint de
+  `auth/*` protegido por `session-jwt`. Diseño aprobado en `docs/modulo-f-analisis.md`.
 - **Autenticación de sesión:** proveedor JWT `session-jwt` instalado en el arranque
   (`plugins/AuthenticationConfig.kt`) con `challenge` que responde 401 `UNAUTHORIZED`
-  estándar; compartido por los Módulos D/E.
+  estándar; compartido por los Módulos D/E/F.
 - **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2+V3 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
@@ -231,6 +238,7 @@ desincronizarse.
 | `POST /api/v1/auth/password-reset/confirm` | Paso 3: valida el token puente (firma/iss/aud/purpose/vigencia/single-use/doble vínculo `jti`+`sub`, C-3), exige la política compartida de contraseña (400, C-6) y el veto a repetir la anterior (409 `PASSWORD_REUSED`, REQ-FUN-07 CA5). Consume el token y responde `200 OK`; 401 `RESET_TOKEN_INVALID` genérico ante token inválido/vencido/usado. |
 | `GET /api/v1/users/me` | Consulta del perfil del usuario autenticado (Módulo D, REQ-FUN-06). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con **solo 5 campos** (`nombreMenor`, `fechaNacimiento` ISO `yyyy-MM-dd`, `correo`, `nombreUsuario`, `avatar`). Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`; fila inexistente (defensivo) → 404 `NOT_FOUND`. |
 | `DELETE /api/v1/users/me` | Eliminación de la propia cuenta (Módulo E, REQ-FUN-05). **Soft delete** por estado con reverificación de contraseña (`contrasena` en el body); responde `200 OK` con `{ "message": ... }`. Contraseña incorrecta → 401 `INVALID_CREDENTIALS`; cuenta ya eliminada → 403 `ACCOUNT_INACTIVE`; forma inválida (vacía / > 72) → 400 `VALIDATION_ERROR` con `details`. Nunca borra filas físicamente. |
+| `POST /api/v1/auth/logout` | Cierre de sesión (Módulo F, REQ-FUN-04). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "message": "Sesión cerrada." }`. **Stateless:** la invalidación del token es local del cliente (REQ-FUN-04 CA2); el backend solo confirma formalmente y registra el cierre en el log INFO con `idUsuario` (nunca el token). Sin body, sin BD, idempotente. Sin token / token de reseteo → 401 `UNAUTHORIZED`. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
 `details` por campo) / `INVALID_REQUEST`, `401` `INVALID_CREDENTIALS` /

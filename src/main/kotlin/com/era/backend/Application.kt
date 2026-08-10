@@ -18,6 +18,7 @@ import com.era.backend.routes.authRoutes
 import com.era.backend.routes.userRoutes
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
+import com.era.backend.services.LogoutService
 import com.era.backend.services.OtpService
 import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
@@ -95,14 +96,24 @@ fun Application.module() {
             ExposedTransactionRunner,
         )
 
+    // Módulo F (logout): stateless, sin BD; solo log de auditoría y confirmación formal.
+    val logoutService = LogoutService()
+
     val authController =
-        AuthController(registrationService, verificationService, loginService, passwordResetService)
+        AuthController(
+            registrationService,
+            verificationService,
+            loginService,
+            passwordResetService,
+            logoutService,
+        )
     // Módulos D y E (perfil y eliminación de cuenta): rutas protegidas por `session-jwt`.
     val usuarioService = UsuarioService(usuarioRepository, ExposedTransactionRunner)
     val usuarioController = UsuarioController(usuarioService)
 
-    // Contrato público de autenticación (Módulos A, A.1, B y C): register, verify-email,
-    // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm.
+    // Contrato público de autenticación (Módulos A, A.1, B, C y F): register, verify-email,
+    // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm,
+    // logout.
     routing {
         authRoutes(authController)
         userRoutes(usuarioController)

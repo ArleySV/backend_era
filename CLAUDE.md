@@ -262,7 +262,7 @@ del cliente (REQ-FUN-06).
 - Proyecto Amper (no Gradle): `module.yaml` + `libs.versions.toml`, wrapper
   `kotlin`/`kotlin.bat`.
 - `src/main/kotlin/com/era/backend/` con endpoints implementados de los Módulos
-  A, A.1, B, C, D y E (ver detalle abajo):
+  A, A.1, B, C, D, E y F (ver detalle abajo):
   - `Application.kt` — wiring completo: `configureAuthentication(config.jwt)`
     antes de `routing {}`, `configurePlugins`, `userRoutes` y `authRoutes`.
   - `config/` (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
@@ -275,7 +275,7 @@ del cliente (REQ-FUN-06).
     `ModuleExtensions`), `repositories/` (interfaces + impls Exposed +
     `TransactionRunner`), `services/` (`RegistrationService`, `OtpService`,
     `VerificationService`, `LoginService`, `PasswordResetService`,
-    `JwtTokenService`, `UsuarioService`, notificadores SMTP),
+    `JwtTokenService`, `UsuarioService`, `LogoutService`, notificadores SMTP),
     `controllers/` (`AuthController`, `UsuarioController`),
     `routes/` (`AuthRoutes`, `UserRoutes`), `utils/` (`Validators`,
     `PasswordPolicy`, `AvatarPreset`).
@@ -294,6 +294,11 @@ del cliente (REQ-FUN-06).
     401 `UNAUTHORIZED`).
   - **E (Eliminación):** `DELETE /api/v1/users/me` — soft delete por estado con
     reverificación bcrypt fuera de transacción y guarda anti-carrera.
+  - **F (Cierre de sesión):** `POST /api/v1/auth/logout` — **stateless**
+    (ARQUITECTURA_BASE §5.4 #2): la invalidación del token es local del cliente;
+    el backend solo confirma formalmente (200 `MensajeResponseDto`) y registra el
+    cierre en el log INFO con `idUsuario` (nunca token/correo/cédula). Sin BD, sin
+    blacklist, idempotente; único endpoint de `auth/*` protegido por `session-jwt`.
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
@@ -303,9 +308,9 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **144 tests automáticos** (`.\kotlin test`, 16 suites): service y route tests de
-  registro, verificación, login, recuperación, perfil y eliminación de cuenta,
-  más manejo de errores y carga de configuración. Verificado con env vars
+- **152 tests automáticos** (`.\kotlin test`, 18 suites): service y route tests de
+  registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
+  de cuenta, más manejo de errores y carga de configuración. Verificado con env vars
   placeholder de `.env.example` (`ConfigLoadTest` las exige).
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y

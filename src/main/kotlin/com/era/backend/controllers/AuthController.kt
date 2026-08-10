@@ -2,7 +2,9 @@ package com.era.backend.controllers
 
 import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
+import com.era.backend.models.SesionPrincipal
 import com.era.backend.models.dto.LoginRequestDto
+import com.era.backend.models.dto.MensajeResponseDto
 import com.era.backend.models.dto.PasswordResetConfirmRequestDto
 import com.era.backend.models.dto.PasswordResetRequestDto
 import com.era.backend.models.dto.PasswordResetVerifyRequestDto
@@ -10,6 +12,7 @@ import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.dto.ResendOtpRequestDto
 import com.era.backend.models.dto.VerifyEmailRequestDto
 import com.era.backend.services.LoginService
+import com.era.backend.services.LogoutService
 import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
@@ -17,21 +20,23 @@ import com.era.backend.utils.AvatarPreset
 import com.era.backend.utils.Validators
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
+import io.ktor.server.auth.principal
 import io.ktor.server.request.receive
 import io.ktor.server.response.respond
 
 /**
  * Handler de los endpoints de autenticación (register, verify-email, resend-otp, login,
- * password-reset/request, password-reset/verify, password-reset/confirm).
+ * password-reset/request, password-reset/verify, password-reset/confirm, logout).
  * Valida la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las
- * reglas de negocio en [RegistrationService], [VerificationService], [LoginService] y
- * [PasswordResetService]. No decide políticas de negocio.
+ * reglas de negocio en [RegistrationService], [VerificationService], [LoginService],
+ * [PasswordResetService] y [LogoutService]. No decide políticas de negocio.
  */
 class AuthController(
     private val registrationService: RegistrationService,
     private val verificationService: VerificationService,
     private val loginService: LoginService,
     private val passwordResetService: PasswordResetService,
+    private val logoutService: LogoutService,
 ) {
 
     /**
@@ -342,6 +347,25 @@ class AuthController(
         }
 
         val respuesta = passwordResetService.confirmarReseteo(request)
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/auth/logout` (Módulo F, REQ-FUN-04, CU-05, HU-04;
+     * `ARQUITECTURA_BASE.md` §5.4 Decisión 2).
+     *
+     * Ruta protegida por `session-jwt`: la identidad llega como [SesionPrincipal], nunca
+     * como parámetro del cliente. Sin body que validar. La invalidación del token es local
+     * (el cliente lo descarta); el service registra el cierre en el log (solo idUsuario,
+     * CLAUDE.md §6) y devuelve la confirmación formal.
+     *
+     * Respuestas: 200 con `MensajeResponseDto`; 401 `UNAUTHORIZED` (challenge D-6) ante
+     * token ausente, inválido o de recuperación (`purpose`).
+     */
+    suspend fun logout(call: ApplicationCall): Unit {
+        val sesion = call.principal<SesionPrincipal>()
+            ?: throw IllegalStateException("Sesión no resuelta en ruta autenticada.")
+        val respuesta: MensajeResponseDto = logoutService.cerrarSesion(sesion.idUsuario)
         call.respond(HttpStatusCode.OK, respuesta)
     }
 

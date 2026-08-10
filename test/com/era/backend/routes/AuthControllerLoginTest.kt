@@ -9,6 +9,7 @@ import com.era.backend.models.dto.LoginRequestDto
 import com.era.backend.models.dto.LoginResponseDto
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
+import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.FakeAcudienteRepository
 import com.era.backend.repositories.FakeCodigoVerificacionRepository
@@ -20,6 +21,7 @@ import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.FakeOtpNotifier
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
+import com.era.backend.services.LogoutService
 import com.era.backend.services.OtpService
 import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
@@ -80,7 +82,7 @@ class AuthControllerLoginTest {
                 JWT_CONFIG_TEST,
                 TransactionRunner { it() },
             )
-        return AuthController(registrationService, verificationService, loginService, passwordResetService)
+        return AuthController(registrationService, verificationService, loginService, passwordResetService, LogoutService())
     }
 
     private fun usuario(
@@ -115,6 +117,7 @@ class AuthControllerLoginTest {
         testApplication {
             application {
                 configurePlugins()
+                configureAuthentication(JWT_CONFIG_TEST)
                 routing { authRoutes(controller(seedUsuario = seedUsuario)) }
             }
             val response =
