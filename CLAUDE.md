@@ -299,6 +299,18 @@ del cliente (REQ-FUN-06).
     el backend solo confirma formalmente (200 `MensajeResponseDto`) y registra el
     cierre en el log INFO con `idUsuario` (nunca token/correo/cédula). Sin BD, sin
     blacklist, idempotente; único endpoint de `auth/*` protegido por `session-jwt`.
+  - **G (Sincronización de progreso):** `GET`/`POST /api/v1/progress/sync` —
+    CU-12/REQ-FUN-10/11/12, solo agregados por nivel (`estado_nivel`,
+    `intentos_totales`, `intentos_fallidos_consecutivos`; sin filas de `intento`,
+    sin pausas). **Merge hacia adelante** (`max` de estado por precedencia y de
+    contadores; `completado_en` fijado una sola vez por el servidor), POST atómico
+    vía `TransactionRunner` (400 `VALIDATION_ERROR` con **cero escrituras** si un
+    `orden` no existe en `nivel`), `totalReintentos = SUM(intentos_totales)` y
+    `nivelesCompletados` calculados **en el servidor**, `totalNiveles = 20`
+    constante. POST responde el snapshot mergeado y persistido (un round-trip).
+    403 `ACCOUNT_INACTIVE` en GET y POST; 401 `UNAUTHORIZED` sin sesión. El backend
+    **no sirve el catálogo de trivia** (§2). Diseño aprobado en
+    `docs/modulo-g-analisis.md`.
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
@@ -308,10 +320,10 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **152 tests automáticos** (`.\kotlin test`, 18 suites): service y route tests de
+- **181 tests automáticos** (`.\kotlin test`, 20 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
-  de cuenta, más manejo de errores y carga de configuración. Verificado con env vars
-  placeholder de `.env.example` (`ConfigLoadTest` las exige).
+  de cuenta, sincronización de progreso, más manejo de errores y carga de configuración.
+  Verificado con env vars placeholder de `.env.example` (`ConfigLoadTest` las exige).
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
   `password_reset_test.ps1` (flujo completo de recuperación).
@@ -322,7 +334,7 @@ del cliente (REQ-FUN-06).
 
 **Próximos pasos (sugeridos):**
 - Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).
+- Módulo H (comentarios, CU-12): envío de comentarios al backend.
 - Módulo I (avatar personalizado, §8.1): subida y servido post-verificación, solo
   con sesión autenticada, hasta 2 MB, whitelist `jpeg/png/webp` con doble
   validación.
-- Sincronización de progreso y comentarios (CU-12) capa por capa.

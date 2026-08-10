@@ -50,13 +50,15 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 152 tests** que cubren el flujo de autenticación, verificación de correo,
-  login, recuperación de contraseña, cierre de sesión y perfil/eliminación de cuenta
-  (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
-  `LoginServiceTest`, `PasswordResetServiceTest`, `LogoutServiceTest`,
-  `UsuarioServiceTest`, `AuthControllerTest`, `AuthControllerVerificationTest`,
+- **Suite actual: 181 tests** que cubren el flujo de autenticación, verificación de correo,
+  login, recuperación de contraseña, cierre de sesión, perfil/eliminación de cuenta y
+  sincronización de progreso (`RegistrationServiceTest`, `OtpServiceTest`,
+  `VerificationServiceTest`, `LoginServiceTest`, `PasswordResetServiceTest`,
+  `LogoutServiceTest`, `UsuarioServiceTest`, `ProgressSyncServiceTest`,
+  `AuthControllerTest`, `AuthControllerVerificationTest`,
   `AuthControllerLoginTest`, `AuthControllerPasswordResetTest`,
-  `AuthControllerLogoutTest`, `UserRoutesTest`), la validación de forma y negocio,
+  `AuthControllerLogoutTest`, `UserRoutesTest`, `ProgressControllerTest`),
+  la validación de forma y negocio,
   el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
   (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
@@ -215,9 +217,20 @@ desincronizarse.
   (200 `MensajeResponseDto`) y registra el evento en el log INFO con `idUsuario` (nunca el
   token ni datos personales). Sin BD, sin blacklist, idempotente; único endpoint de
   `auth/*` protegido por `session-jwt`. Diseño aprobado en `docs/modulo-f-analisis.md`.
+- **Módulo G (Sincronización de progreso) completo:** `GET`/`POST /api/v1/progress/sync`
+  operativos — CU-12/REQ-FUN-10/11/12 con **solo agregados por nivel** (`estadoNivel`,
+  `intentosTotales`, `intentosFallidosConsecutivos`; sin filas de `intento`, sin pausas).
+  **Merge hacia adelante** (el estado usa precedencia `bloqueado < disponible < completado`;
+  contadores = `max(cliente, servidor)`; `completadoEn` lo fija el servidor una sola vez),
+  **POST atómico** vía `TransactionRunner` (400 `VALIDATION_ERROR` con **cero escrituras**
+  si un `orden` no existe en el catálogo `nivel`). `totalReintentos = SUM(intentos_totales)`
+  y `nivelesCompletados` calculados **en el servidor**; `totalNiveles = 20`. El POST
+  responde el snapshot mergeado y persistido (un solo round-trip, CU-12 paso 3). Sin token
+  → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. El backend **no sirve**
+  el catálogo de trivia. Diseño aprobado en `docs/modulo-g-analisis.md`.
 - **Autenticación de sesión:** proveedor JWT `session-jwt` instalado en el arranque
   (`plugins/AuthenticationConfig.kt`) con `challenge` que responde 401 `UNAUTHORIZED`
-  estándar; compartido por los Módulos D/E/F.
+  estándar; compartido por los Módulos D/E/F/G.
 - **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2+V3 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
@@ -239,6 +252,8 @@ desincronizarse.
 | `GET /api/v1/users/me` | Consulta del perfil del usuario autenticado (Módulo D, REQ-FUN-06). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con **solo 5 campos** (`nombreMenor`, `fechaNacimiento` ISO `yyyy-MM-dd`, `correo`, `nombreUsuario`, `avatar`). Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`; fila inexistente (defensivo) → 404 `NOT_FOUND`. |
 | `DELETE /api/v1/users/me` | Eliminación de la propia cuenta (Módulo E, REQ-FUN-05). **Soft delete** por estado con reverificación de contraseña (`contrasena` en el body); responde `200 OK` con `{ "message": ... }`. Contraseña incorrecta → 401 `INVALID_CREDENTIALS`; cuenta ya eliminada → 403 `ACCOUNT_INACTIVE`; forma inválida (vacía / > 72) → 400 `VALIDATION_ERROR` con `details`. Nunca borra filas físicamente. |
 | `POST /api/v1/auth/logout` | Cierre de sesión (Módulo F, REQ-FUN-04). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "message": "Sesión cerrada." }`. **Stateless:** la invalidación del token es local del cliente (REQ-FUN-04 CA2); el backend solo confirma formalmente y registra el cierre en el log INFO con `idUsuario` (nunca el token). Sin body, sin BD, idempotente. Sin token / token de reseteo → 401 `UNAUTHORIZED`. |
+| `GET /api/v1/progress/sync` | Snapshot autoritativo del progreso del usuario (Módulo G, CU-12/REQ-FUN-10/11/12). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "progreso": [...], "resumen": { "nivelesCompletados", "totalNiveles": 20, "totalReintentos" } }`. Solo agregados por nivel (`orden`, `estadoNivel`, `intentosTotales`, `intentosFallidosConsecutivos`, `completadoEn`); sin filas de `intento` ni pausas. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. El backend no sirve el catálogo de trivia. |
+| `POST /api/v1/progress/sync` | Sube el estado local acumulado y lo **mergea hacia adelante** (Módulo G, CU-12). Requiere `Authorization: Bearer <token-sesión>`; valida la forma (`progreso` obligatorio, `orden` 1..20, `estadoNivel` ∈ `BLOQUEADO/DISPONIBLE/COMPLETADO`, contadores ≥ 0, sin `orden` duplicado → 400 `VALIDATION_ERROR` con `details`) y la integridad (todo `orden` debe existir en `nivel` → 400 con **cero escrituras**). Persiste **atómicamente**, fija `completadoEn` una sola vez y responde `200 OK` con el snapshot **mergeado y persistido** (un round-trip). Sin token → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
 `details` por campo) / `INVALID_REQUEST`, `401` `INVALID_CREDENTIALS` /

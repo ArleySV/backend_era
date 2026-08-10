@@ -2,6 +2,7 @@ package com.era.backend
 
 import com.era.backend.config.loadAppConfig
 import com.era.backend.controllers.AuthController
+import com.era.backend.controllers.ProgressController
 import com.era.backend.controllers.UsuarioController
 import com.era.backend.database.DatabaseMigrator
 import com.era.backend.plugins.DatabaseFactory
@@ -10,17 +11,21 @@ import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.ExposedAcudienteRepository
 import com.era.backend.repositories.ExposedCodigoVerificacionRepository
 import com.era.backend.repositories.ExposedConfiguracionRepository
+import com.era.backend.repositories.ExposedNivelRepository
+import com.era.backend.repositories.ExposedProgresoRepository
 import com.era.backend.repositories.ExposedRegistroPendienteRepository
 import com.era.backend.repositories.ExposedTokensReseteoRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
 import com.era.backend.routes.authRoutes
+import com.era.backend.routes.progressRoutes
 import com.era.backend.routes.userRoutes
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.LogoutService
 import com.era.backend.services.OtpService
 import com.era.backend.services.PasswordResetService
+import com.era.backend.services.ProgressSyncService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.SimpleJavaMailOtpNotifier
 import com.era.backend.services.UsuarioService
@@ -111,11 +116,20 @@ fun Application.module() {
     val usuarioService = UsuarioService(usuarioRepository, ExposedTransactionRunner)
     val usuarioController = UsuarioController(usuarioService)
 
+    // Módulo G (sincronización de progreso, CU-12): catálogo `nivel` como ancla referencial
+    // + espejo `progreso_usuario`. El POST es atómico vía `ExposedTransactionRunner` (§6).
+    val nivelRepository = ExposedNivelRepository()
+    val progresoRepository = ExposedProgresoRepository()
+    val progressSyncService =
+        ProgressSyncService(usuarioRepository, nivelRepository, progresoRepository, ExposedTransactionRunner)
+    val progressController = ProgressController(progressSyncService)
+
     // Contrato público de autenticación (Módulos A, A.1, B, C y F): register, verify-email,
     // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm,
     // logout.
     routing {
         authRoutes(authController)
         userRoutes(usuarioController)
+        progressRoutes(progressController)
     }
 }
