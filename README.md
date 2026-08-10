@@ -50,12 +50,14 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 124 tests** que cubren el flujo de autenticación, verificación de correo,
-  login y recuperación de contraseña (`RegistrationServiceTest`, `OtpServiceTest`,
-  `VerificationServiceTest`, `LoginServiceTest`, `PasswordResetServiceTest`,
+- **Suite actual: 144 tests** que cubren el flujo de autenticación, verificación de correo,
+  login, recuperación de contraseña y perfil/eliminación de cuenta
+  (`RegistrationServiceTest`, `OtpServiceTest`, `VerificationServiceTest`,
+  `LoginServiceTest`, `PasswordResetServiceTest`, `UsuarioServiceTest`,
   `AuthControllerTest`, `AuthControllerVerificationTest`, `AuthControllerLoginTest`,
-  `AuthControllerPasswordResetTest`), la validación de forma y negocio, el manejo
-  centralizado de errores (`ErrorHandlingTest`) y la carga de configuración (`ConfigLoadTest`).
+  `AuthControllerPasswordResetTest`, `UserRoutesTest`), la validación de forma y negocio,
+  el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
+  (`ConfigLoadTest`).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
 
@@ -194,9 +196,29 @@ desincronizarse.
   del OTP, token puente JWT de 10 min single-use con doble vínculo `jti`+`sub` C-3) y
   `/confirm` (política compartida C-6, veto a repetir la contraseña anterior REQ-FUN-07 CA5).
   Todo el acceso a datos en transacción; SMTP y emisión JWT fuera de la transacción.
-- **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2 aplicadas).
+- **Módulo D (Consulta de perfil) completo:** `GET /api/v1/users/me` operativo — perfil del
+  usuario autenticado con **mínimo privilegio** (solo 5 campos: nombre, fecha de nacimiento
+  ISO, correo, username, avatar; nunca hash ni cédula), protegido por el proveedor JWT
+  `session-jwt` (`verifier` con audiencia `era-app-session` + `validate` que rechaza tokens
+  de reseteo). Cuenta en soft delete → 403 `ACCOUNT_INACTIVE`. Diseño aprobado en
+  `docs/modulo-d-analisis.md`.
+- **Módulo E (Eliminación de cuenta) completo:** `DELETE /api/v1/users/me` operativo — soft
+  delete por estado (`estado = 'eliminado'`, nunca borrado físico, REQ-FUN-05) con
+  reverificación de contraseña (bcrypt **fuera de transacción**) y guarda anti-carrera
+  (segunda transacción con relock `FOR UPDATE` + comprobación de estado activo). Errores:
+  401 `INVALID_CREDENTIALS` (contraseña incorrecta) y 403 `ACCOUNT_INACTIVE` (ya eliminada).
+  El correo queda bloqueado para nuevos registros (REQ-FUN-05 CA6).
+- **Autenticación de sesión:** proveedor JWT `session-jwt` instalado en el arranque
+  (`plugins/AuthenticationConfig.kt`) con `challenge` que responde 401 `UNAUTHORIZED`
+  estándar; compartido por los Módulos D/E.
+- **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2+V3 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
+- **Pruebas manuales verificadas en terminal (Módulos D/E):** flujo completo
+  register → verify → login → `GET /me` (5 campos) → `DELETE /me` (soft delete) contra
+  MySQL real, más los casos de error: 401 sin token, 401 `INVALID_CREDENTIALS` con
+  contraseña incorrecta, 400 `VALIDATION_ERROR` con `details`, 403 `ACCOUNT_INACTIVE`
+  post-eliminación y 403 al reintentar login de la cuenta eliminada.
 
 ## Endpoints de la API (v1)
 
@@ -207,9 +229,12 @@ desincronizarse.
 | `POST /api/v1/auth/password-reset/request` | Paso 1 de la recuperación: solicita un OTP de 6 dígitos (vigencia 10 min) para el correo. Responde **siempre** `200 OK` con el mismo mensaje genérico exista o no la cuenta (anti-enumeración C-1, REQ-FUN-07 CA4); reenvíos antes de 60 s → 429 `OTP_RESEND_THROTTLED` (C-2). |
 | `POST /api/v1/auth/password-reset/verify` | Paso 2: verifica el OTP (máx. 3 fallos P1, single-use del código) y, si es correcto, responde `200 OK` con un **token puente JWT de 10 min single-use** (`{ "resetToken": ... }`, C-3). Errores → 401 `OTP_INVALID_OR_EXPIRED` genérico. |
 | `POST /api/v1/auth/password-reset/confirm` | Paso 3: valida el token puente (firma/iss/aud/purpose/vigencia/single-use/doble vínculo `jti`+`sub`, C-3), exige la política compartida de contraseña (400, C-6) y el veto a repetir la anterior (409 `PASSWORD_REUSED`, REQ-FUN-07 CA5). Consume el token y responde `200 OK`; 401 `RESET_TOKEN_INVALID` genérico ante token inválido/vencido/usado. |
+| `GET /api/v1/users/me` | Consulta del perfil del usuario autenticado (Módulo D, REQ-FUN-06). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con **solo 5 campos** (`nombreMenor`, `fechaNacimiento` ISO `yyyy-MM-dd`, `correo`, `nombreUsuario`, `avatar`). Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`; fila inexistente (defensivo) → 404 `NOT_FOUND`. |
+| `DELETE /api/v1/users/me` | Eliminación de la propia cuenta (Módulo E, REQ-FUN-05). **Soft delete** por estado con reverificación de contraseña (`contrasena` en el body); responde `200 OK` con `{ "message": ... }`. Contraseña incorrecta → 401 `INVALID_CREDENTIALS`; cuenta ya eliminada → 403 `ACCOUNT_INACTIVE`; forma inválida (vacía / > 72) → 400 `VALIDATION_ERROR` con `details`. Nunca borra filas físicamente. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
 `details` por campo) / `INVALID_REQUEST`, `401` `INVALID_CREDENTIALS` /
-`OTP_INVALID_OR_EXPIRED` / `RESET_TOKEN_INVALID`, `409` `EMAIL_ALREADY_REGISTERED`,
-`EMAIL_LOCKED`, `PASSWORD_REUSED` o `CONFLICT`, `423` `ACCOUNT_LOCKED` y `429`
-`OTP_RESEND_THROTTLED`.
+`OTP_INVALID_OR_EXPIRED` / `RESET_TOKEN_INVALID` / `UNAUTHORIZED`, `403`
+`ACCOUNT_INACTIVE`, `404` `NOT_FOUND`, `409` `EMAIL_ALREADY_REGISTERED`, `EMAIL_LOCKED`,
+`PASSWORD_REUSED` o `CONFLICT`, `423` `ACCOUNT_LOCKED`, `429` `OTP_RESEND_THROTTLED` y
+`500` `INTERNAL_ERROR`.

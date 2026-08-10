@@ -70,6 +70,27 @@ class ExposedUsuarioRepository : UsuarioRepository {
             ?.let { aFila(it) }
 
     /**
+     * Lectura del usuario por id sin lock (Módulo D, `GET /users/me`). Espejo de
+     * [findByIdForUpdate] sin el `FOR UPDATE`: lectura pura para consultar el perfil.
+     */
+    override fun findById(idUsuario: Long): UsuarioRow? =
+        UsuarioTable.selectAll()
+            .where { UsuarioTable.idUsuario eq idUsuario.toInt() }
+            .firstOrNull()
+            ?.let { aFila(it) }
+
+    /**
+     * Soft delete por estado (Módulo E, REQ-FUN-05): `UPDATE usuario SET estado = ...`.
+     * Espejo de `actualizarEstadoLogin`; un solo UPDATE de columna. Debe ejecutarse en la
+     * transacción de `UsuarioService`; el throw de la excepción ocurre fuera de ella.
+     */
+    override fun actualizarEstado(idUsuario: Long, estado: EstadoUsuario) {
+        UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
+            it[UsuarioTable.estado] = estado.valor
+        }
+    }
+
+    /**
      * Verifica si [nombreUsuario] ya está en uso. Aplica a cuentas activas y eliminadas:
      * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01).
      * Sin loguear datos de la fila (CLAUDE.md §6).

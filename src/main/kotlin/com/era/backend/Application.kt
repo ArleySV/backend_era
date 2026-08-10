@@ -2,8 +2,10 @@ package com.era.backend
 
 import com.era.backend.config.loadAppConfig
 import com.era.backend.controllers.AuthController
+import com.era.backend.controllers.UsuarioController
 import com.era.backend.database.DatabaseMigrator
 import com.era.backend.plugins.DatabaseFactory
+import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.ExposedAcudienteRepository
 import com.era.backend.repositories.ExposedCodigoVerificacionRepository
@@ -13,12 +15,14 @@ import com.era.backend.repositories.ExposedTokensReseteoRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
 import com.era.backend.routes.authRoutes
+import com.era.backend.routes.userRoutes
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
 import com.era.backend.services.PasswordResetService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.SimpleJavaMailOtpNotifier
+import com.era.backend.services.UsuarioService
 import com.era.backend.services.VerificationService
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
@@ -34,6 +38,10 @@ fun Application.module() {
 
     val config = loadAppConfig()
     val dataSource = DatabaseFactory.createDataSource(config.database)
+
+    // Proveedor JWT de sesión (`session-jwt`): SIEMPRE antes de `routing {}` (un
+    // `authenticate` sobre un proveedor no instalado lanza en arranque). Módulos D/E.
+    configureAuthentication(config.jwt)
 
     monitor.subscribe(ApplicationStopped) {
         DatabaseFactory.close(dataSource)
@@ -89,10 +97,14 @@ fun Application.module() {
 
     val authController =
         AuthController(registrationService, verificationService, loginService, passwordResetService)
+    // Módulos D y E (perfil y eliminación de cuenta): rutas protegidas por `session-jwt`.
+    val usuarioService = UsuarioService(usuarioRepository, ExposedTransactionRunner)
+    val usuarioController = UsuarioController(usuarioService)
 
     // Contrato público de autenticación (Módulos A, A.1, B y C): register, verify-email,
     // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm.
     routing {
         authRoutes(authController)
+        userRoutes(usuarioController)
     }
 }

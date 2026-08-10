@@ -1,5 +1,6 @@
 package com.era.backend.repositories
 
+import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
 import java.time.LocalDateTime
 
@@ -81,6 +82,34 @@ interface UsuarioRepository {
      * Seguridad (CLAUDE.md §6): nunca loguear `contrasena_hash` de la fila.
      */
     fun findByIdForUpdate(idUsuario: Long): UsuarioRow?
+
+    /**
+     * Lectura del usuario por id **sin lock de escritura**, para la consulta de perfil
+     * (Módulo D, `GET /users/me`). Es una lectura pura: no hay actualización concurrente
+     * que proteger (a diferencia de [findByIdForUpdate]). El service usa la fila para
+     * verificar que la cuenta sigue `ACTIVO` (403 `ACCOUNT_INACTIVE` si fue eliminada) y
+     * para mapear el `UsuarioPerfilDto`.
+     *
+     * Debe ejecutarse dentro de una transacción (la provee `UsuarioService` vía
+     * `TransactionRunner`); Exposed exige contexto transaccional incluso para un SELECT.
+     *
+     * Seguridad (CLAUDE.md §6): nunca loguear correo, cédula ni `contrasena_hash` de la fila.
+     */
+    fun findById(idUsuario: Long): UsuarioRow?
+
+    /**
+     * Persiste el cambio de estado de la cuenta (Módulo E, REQ-FUN-05): la "eliminación"
+     * es un **soft delete por estado** — `UPDATE usuario SET estado = 'eliminado'` —, nunca
+     * un `DELETE` físico (CLAUDE.md §7). Espejo de `actualizarEstadoLogin` y
+     * `actualizarContrasena` (un solo UPDATE de columna).
+     *
+     * Debe ejecutarse dentro de la transacción de `UsuarioService` (junto a la lectura con
+     * [findByIdForUpdate] y la verificación de contraseña); el throw de la excepción de
+     * dominio ocurre fuera del bloque para que solo el cambio de estado commitee.
+     *
+     * Seguridad (CLAUDE.md §6): nunca loguear la fila ni la contraseña verificada.
+     */
+    fun actualizarEstado(idUsuario: Long, estado: EstadoUsuario)
 
     /**
      * Persiste el estado de login del usuario (Módulo B, §5): el contador de intentos

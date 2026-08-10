@@ -1,5 +1,6 @@
 package com.era.backend.repositories
 
+import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
 import java.time.LocalDateTime
 
@@ -21,7 +22,7 @@ class FakeUsuarioRepository : UsuarioRepository {
     fun size(): Int = porCorreo.size
 
     /** Devuelve la fila con el id asignado (o el que traía, si no era 0). */
-    fun findById(idUsuario: Long): UsuarioRow? =
+    override fun findById(idUsuario: Long): UsuarioRow? =
         porCorreo.values.firstOrNull { it.idUsuario == idUsuario }
 
     override fun findByEmail(correo: String): UsuarioRow? = porCorreo[correo]
@@ -68,5 +69,14 @@ class FakeUsuarioRepository : UsuarioRepository {
     override fun actualizarContrasena(idUsuario: Long, contrasenaHash: String) {
         val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
         porCorreo[existente.correo] = existente.copy(contrasenaHash = contrasenaHash)
+    }
+
+    /**
+     * Espejo en memoria de `actualizarEstado` (Módulo E): muta el estado de la fila para
+     * que `UsuarioServiceTest` pueda assertar el soft delete (REQ-FUN-05).
+     */
+    override fun actualizarEstado(idUsuario: Long, estado: EstadoUsuario) {
+        val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
+        porCorreo[existente.correo] = existente.copy(estado = estado)
     }
 }
