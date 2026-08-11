@@ -244,6 +244,89 @@ class AvatarRoutesTest {
         assertNull(usuarios.findById(1L)!!.avatar)
     }
 
+    // ── PUT: seguridad (anonimización §2.3 y aislamiento entre usuarios) ──────────────
+
+    @Test
+    fun `PUT con filename hostil se anonimiza y la clave nunca deriva del nombre`() {
+        val usuarios = FakeUsuarioRepository().apply { seed(usuarioActivo()) }
+        val storage = FakeAvatarStorage()
+        app(usuarios, storage) {
+            val response =
+                submitFormWithBinaryData(
+                    url = "/api/v1/users/me/avatar",
+                    formData = formData {
+                        append(
+                            "avatar",
+                            jpeg(),
+                            headers {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"../../evil.php\"")
+                            },
+                        )
+                    },
+                ) {
+                    method = HttpMethod.Put
+                    header(HttpHeaders.Authorization, "Bearer ${sesionToken()}")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+        }
+        val clave = usuarios.findById(1L)!!.avatar!!
+        assertTrue(clave.startsWith("custom:"), "clave opaca generada por el servidor (§2.3)")
+        assertTrue(clave.endsWith(".jpg"), "la extensión es la canónica del formato real (jpeg)")
+        assertTrue(
+            !clave.contains("..") && !clave.contains('/') && !clave.contains('\\') && !clave.contains("evil"),
+            "el filename del cliente jamás entra en la clave",
+        )
+        assertEquals(setOf(clave), storage.claves(), "una sola clave custom:*, sin path traversal")
+    }
+
+    @Test
+    fun `PUT y GET de un usuario no tocan el avatar de otro (aislamiento A-B)`() {
+        val usuarios =
+            FakeUsuarioRepository().apply {
+                seed(usuarioActivo(avatar = "custom:foto.png"))
+                seed(
+                    usuarioActivo(avatar = null).copy(
+                        idUsuario = 2L,
+                        correo = "otro.acudiente@example.com",
+                        nombreUsuario = "otrousuario",
+                    ),
+                )
+            }
+        val storage = FakeAvatarStorage().apply { guardar("custom:foto.png", png(), "image/png") }
+        app(usuarios, storage) {
+            val tokenUsuario2 = JwtTokenService(JWT_CONFIG_TEST).emitir(2L)
+            val get =
+                get("/api/v1/users/me/avatar") {
+                    header(HttpHeaders.Authorization, "Bearer $tokenUsuario2")
+                }
+            assertEquals(HttpStatusCode.NotFound, get.status, "el token de 2 no ve la foto de 1")
+            val put =
+                submitFormWithBinaryData(
+                    url = "/api/v1/users/me/avatar",
+                    formData = formData {
+                        append(
+                            "avatar",
+                            jpeg(),
+                            headers {
+                                append(HttpHeaders.ContentType, "image/jpeg")
+                                append(HttpHeaders.ContentDisposition, "filename=\"avatar.jpg\"")
+                            },
+                        )
+                    },
+                ) {
+                    method = HttpMethod.Put
+                    header(HttpHeaders.Authorization, "Bearer $tokenUsuario2")
+                }
+            assertEquals(HttpStatusCode.OK, put.status)
+        }
+        assertEquals("custom:foto.png", usuarios.findById(1L)!!.avatar, "el avatar de 1 no se toca")
+        assertTrue(storage.contiene("custom:foto.png"), "el archivo de 1 no se borra ni se reemplaza")
+        val claveDe2 = usuarios.findById(2L)!!.avatar!!
+        assertTrue(claveDe2.startsWith("custom:") && claveDe2 != "custom:foto.png")
+        assertTrue(storage.contiene(claveDe2), "el avatar de 2 se persiste en su propia clave")
+    }
+
     // ── PUT: cuenta en soft delete (§4.1) ────────────────────────────────────────────
 
     @Test
