@@ -262,22 +262,25 @@ del cliente (REQ-FUN-06).
 - Proyecto Amper (no Gradle): `module.yaml` + `libs.versions.toml`, wrapper
   `kotlin`/`kotlin.bat`.
 - `src/main/kotlin/com/era/backend/` con endpoints implementados de los Módulos
-  A, A.1, B, C, D, E y F (ver detalle abajo):
+  A, A.1, B, C, D, E, F, G y H (ver detalle abajo):
   - `Application.kt` — wiring completo: `configureAuthentication(config.jwt)`
-    antes de `routing {}`, `configurePlugins`, `userRoutes` y `authRoutes`.
+    antes de `routing {}`, `configurePlugins`, `userRoutes`, `authRoutes`,
+    `progressRoutes` y `feedbackRoutes`.
   - `config/` (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
     `MigrateRunner`), `plugins/` (`AuthenticationConfig`, `DatabaseFactory`,
     `StatusPagesConfig`).
-  - `models/` (`SesionPrincipal`), `models/dto/` (14 DTOs: register, verify,
-    resend, login, password-reset ×3, perfil, eliminar, mensaje, …),
-    `models/entities/` (tablas Exposed).
+  - `models/` (`SesionPrincipal`), `models/dto/` (15 DTOs: register, verify,
+    resend, login, password-reset ×3, perfil, eliminar, mensaje, comentario, …),
+    `models/entities/` (tablas Exposed, incluida `ComentarioTable`).
   - `exceptions/` (`CoreExceptions`, `DomainException`, `ErrorDto`,
-    `ModuleExtensions`), `repositories/` (interfaces + impls Exposed +
-    `TransactionRunner`), `services/` (`RegistrationService`, `OtpService`,
+    `ModuleExtensions`), `repositories/` (interfaces + impls Exposed, incluidos
+    `ComentarioRepository`/`ExposedComentarioRepository`, + `TransactionRunner`),
+    `services/` (`RegistrationService`, `OtpService`,
     `VerificationService`, `LoginService`, `PasswordResetService`,
-    `JwtTokenService`, `UsuarioService`, `LogoutService`, notificadores SMTP),
-    `controllers/` (`AuthController`, `UsuarioController`),
-    `routes/` (`AuthRoutes`, `UserRoutes`), `utils/` (`Validators`,
+    `JwtTokenService`, `UsuarioService`, `LogoutService`, `ComentarioService`,
+    notificadores SMTP), `controllers/` (`AuthController`, `UsuarioController`,
+    `ProgressController`, `FeedbackController`), `routes/` (`AuthRoutes`,
+    `UserRoutes`, `ProgressRoutes`, `FeedbackRoutes`), `utils/` (`Validators`,
     `PasswordPolicy`, `AvatarPreset`).
 - **Módulos implementados y verificados** (tests automáticos + pruebas manuales):
   - **A (Registro):** `POST /api/v1/auth/register` — validaciones de forma (V4–V9)
@@ -308,9 +311,19 @@ del cliente (REQ-FUN-06).
     `orden` no existe en `nivel`), `totalReintentos = SUM(intentos_totales)` y
     `nivelesCompletados` calculados **en el servidor**, `totalNiveles = 20`
     constante. POST responde el snapshot mergeado y persistido (un round-trip).
-    403 `ACCOUNT_INACTIVE` en GET y POST; 401 `UNAUTHORIZED` sin sesión. El backend
-    **no sirve el catálogo de trivia** (§2). Diseño aprobado en
-    `docs/modulo-g-analisis.md`.
+     403 `ACCOUNT_INACTIVE` en GET y POST; 401 `UNAUTHORIZED` sin sesión. El backend
+     **no sirve el catálogo de trivia** (§2). Diseño aprobado en
+     `docs/modulo-g-analisis.md`.
+  - **H (Comentarios):** `POST /api/v1/feedback/comments` — CU-10/REQ-FUN-14 con
+    **solo escritura** (`contenido`, máx. 2000 caracteres). El `id_usuario` se
+    resuelve **siempre** del `SesionPrincipal` (nunca del body; claves desconocidas
+    → 400 `INVALID_REQUEST`). Validación de forma en el controller (`isBlank()` y
+    `length > 2000` → 400 `VALIDATION_ERROR` con `details`), `.trim()` antes de
+    persistir, inserción dentro de `TransactionRunner`, confirmación 200
+    `MensajeResponseDto`. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta
+    eliminada → 403 `ACCOUNT_INACTIVE`. **Regla de oro:** el contenido del
+    comentario nunca se loguea; la auditoría usa solo `idComentario` e `idUsuario`.
+    Diseño aprobado en `docs/modulo-h-analisis.md`.
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
@@ -320,10 +333,11 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **181 tests automáticos** (`.\kotlin test`, 20 suites): service y route tests de
+- **196 tests automáticos** (`.\kotlin test`, 22 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
-  de cuenta, sincronización de progreso, más manejo de errores y carga de configuración.
-  Verificado con env vars placeholder de `.env.example` (`ConfigLoadTest` las exige).
+  de cuenta, sincronización de progreso y comentarios, más manejo de errores y carga
+  de configuración. Verificado con env vars placeholder de `.env.example`
+  (`ConfigLoadTest` las exige).
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
   `password_reset_test.ps1` (flujo completo de recuperación).
@@ -334,7 +348,6 @@ del cliente (REQ-FUN-06).
 
 **Próximos pasos (sugeridos):**
 - Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).
-- Módulo H (comentarios, CU-12): envío de comentarios al backend.
 - Módulo I (avatar personalizado, §8.1): subida y servido post-verificación, solo
   con sesión autenticada, hasta 2 MB, whitelist `jpeg/png/webp` con doble
   validación.

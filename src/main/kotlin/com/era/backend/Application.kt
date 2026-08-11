@@ -2,6 +2,7 @@ package com.era.backend
 
 import com.era.backend.config.loadAppConfig
 import com.era.backend.controllers.AuthController
+import com.era.backend.controllers.FeedbackController
 import com.era.backend.controllers.ProgressController
 import com.era.backend.controllers.UsuarioController
 import com.era.backend.database.DatabaseMigrator
@@ -10,6 +11,7 @@ import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.ExposedAcudienteRepository
 import com.era.backend.repositories.ExposedCodigoVerificacionRepository
+import com.era.backend.repositories.ExposedComentarioRepository
 import com.era.backend.repositories.ExposedConfiguracionRepository
 import com.era.backend.repositories.ExposedNivelRepository
 import com.era.backend.repositories.ExposedProgresoRepository
@@ -18,8 +20,10 @@ import com.era.backend.repositories.ExposedTokensReseteoRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
 import com.era.backend.routes.authRoutes
+import com.era.backend.routes.feedbackRoutes
 import com.era.backend.routes.progressRoutes
 import com.era.backend.routes.userRoutes
+import com.era.backend.services.ComentarioService
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.LogoutService
@@ -124,6 +128,12 @@ fun Application.module() {
         ProgressSyncService(usuarioRepository, nivelRepository, progresoRepository, ExposedTransactionRunner)
     val progressController = ProgressController(progressSyncService)
 
+    // Módulo H (comentarios, REQ-FUN-14/CU-10/HU-14): solo escritura en `comentario`.
+    val comentarioRepository = ExposedComentarioRepository()
+    val comentarioService =
+        ComentarioService(usuarioRepository, comentarioRepository, ExposedTransactionRunner)
+    val feedbackController = FeedbackController(comentarioService)
+
     // Contrato público de autenticación (Módulos A, A.1, B, C y F): register, verify-email,
     // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm,
     // logout.
@@ -131,5 +141,6 @@ fun Application.module() {
         authRoutes(authController)
         userRoutes(usuarioController)
         progressRoutes(progressController)
+        feedbackRoutes(feedbackController)
     }
 }
