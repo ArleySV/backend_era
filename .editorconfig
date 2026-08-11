@@ -1,0 +1,76 @@
+# BACKEND_ERA — convenciones de estilo Kotlin (ktlint 1.8.0)
+#
+# Este archivo refleja el estilo de facto del proyecto detectado por revisión:
+# el código fue formateado a mano con convenciones propias que difieren del
+# default de ktlint en reglas concretas. Cada regla desactivada indica un
+# conflicto real con el estilo del proyecto; el resto usa el default de ktlint.
+root = true
+
+[*.{kt,kts}]
+# Base: 4 espacios, un ancho de línea máximo de 140 (default de ktlint 1.8.0;
+# solo AppConfigLoader.kt:21 lo supera y se corregirá con -Format).
+indent_style = space
+indent_size = 4
+max_line_length = 140
+
+# --- Imports --------------------------------------------------------------
+# Orden lexicográfico puro de todo el import list (sin agrupar java/kotlin al
+# final): `com.era` -> `io.ktor` -> `java` -> `kotlinx` (estilo de facto).
+ij_kotlin_imports_layout = *
+
+# --- Reglas desactivadas por estilo de facto ------------------------------
+# Línea en blanco tras `{` en cuerpos de clase/objeto (todos los controllers,
+# services, repositorios).
+ktlint_standard_no-empty-first-line-in-class-body = disabled
+
+# Línea en blanco tras `{` en bloques de método (routing de AuthRoutes, etc.).
+ktlint_standard_no-empty-first-line-in-method-block = disabled
+
+# Retorno explícito `: Unit` en los handlers suspendidos de los controllers.
+ktlint_standard_no-unit-return = disabled
+
+# KDoc abundante: cabecera de archivo ("dangling") y dentro de bloques de rutas.
+ktlint_standard_kdoc = disabled
+ktlint_standard_no-consecutive-comments = disabled
+
+# `when` compacto: cuerpos de una línea sin llaves y sin líneas en blanco entre
+# condiciones (estilo previo a la promoción de estas reglas en ktlint 1.8.0).
+ktlint_standard_when-entry-bracing = disabled
+ktlint_standard_blank-line-between-when-conditions = disabled
+
+# DTOs con KDoc por campo y línea en blanco entre propiedades.
+ktlint_standard_no-blank-line-in-list = disabled
+
+# Idiom de excepciones: `class X(message: String) :` + supertipo en la
+# siguiente línea (CoreExceptions.kt, ModuleExtensions.kt).
+ktlint_standard_class-signature = disabled
+
+# Expresiones multilínea que comienzan en la misma línea que el `=` /
+# continuación de Elvis: `val x = expr` + `?: ...` (idiom de controllers).
+ktlint_standard_multiline-expression-wrapping = disabled
+
+# Cadenas de métodos rotas en puntos naturales (builder de JWT, Exposed), sin
+# exigir que cada `.` ocupe su propia línea en TODO el archivo.
+ktlint_standard_chain-method-continuation = disabled
+
+# Bloques compactos de una línea en tests: `{ assertA(); assertB() }`.
+ktlint_standard_statement-wrapping = disabled
+
+# Firma de funciones. ktlint no permite expresar el estilo de facto del
+# proyecto (firma en una línea si es corta, multilínea cuando es larga: ~90+
+# caracteres o 4+ parámetros, como en los repositorios e interfaces). ktlint
+# 1.8.0 siempre colapsa a una línea lo que quepa en 140, sin opción por ancho;
+# por eso la regla se desactiva entera (probado con wrapping_rule = multiline
+# y never: ambos colapsan). Dejar activa implicaría reformatear ~113 firmas y
+# 37 cuerpos `=` contra el estilo deliberado del autor.
+ktlint_standard_function-signature = disabled
+
+# Wrapping de argumentos de llamada. El proyecto parte la asignación y deja el
+# argumento inline con el calle: `val x =\n    foo(arg = ...)` y mantiene el
+# idiom de Exposed `(Tabla.insert { ... }) get Tabla.id`. ktlint exige abrir el
+# argumento en su propia línea. Desactivar `wrapping` obliga a desactivar
+# también las dos reglas de trailing commas (dependencia del motor), que de
+# todos modos ya se cumplen a mano de forma consistente en todo el repo.
+ktlint_standard_wrapping = disabled
+ktlint_standard_trailing-comma-on-call-site = disabled
+ktlint_standard_trailing-comma-on-declaration-site = disabled
