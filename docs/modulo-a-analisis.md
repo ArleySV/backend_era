@@ -253,6 +253,9 @@ forma → controller.
 | `EmailLockedException` | 409 | Correo de cuenta en soft delete |
 | `ConflictException` | 409 | `nombreUsuario` en uso |
 | `OtpResendThrottledException` | 429 | Reenvío antes de 60 s (aplica en A.1) |
+| `OtpInvalidException` | 401 | OTP incorrecto o vencido en `verify-email`; mensaje genérico (P1) |
+| `EmailAlreadyVerifiedException` | 409 | Correo ya verificado: el pendiente fue consumido y la cuenta está activa |
+| `NotFoundException` | 404 | Defensivo: no hay `registro_pendiente` para el correo (solo donde es seguro informar) |
 
 ---
 
