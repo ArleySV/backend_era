@@ -1,7 +1,7 @@
 package com.era.backend.routes
 
-import com.era.backend.controllers.AuthController
 import com.era.backend.config.JwtConfig
+import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.ResendOtpRequestDto
 import com.era.backend.models.dto.VerifyEmailRequestDto
 import com.era.backend.models.entities.EstadoUsuario

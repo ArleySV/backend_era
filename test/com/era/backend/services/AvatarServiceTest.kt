@@ -294,8 +294,6 @@ class AvatarServiceTest {
 
         override fun leer(clave: String): ContenidoAvatar? = null
 
-        override fun eliminar(clave: String) {
-            throw AvatarStorageException("fallo de I/O simulado")
-        }
+        override fun eliminar(clave: String): Unit = throw AvatarStorageException("fallo de I/O simulado")
     }
 }

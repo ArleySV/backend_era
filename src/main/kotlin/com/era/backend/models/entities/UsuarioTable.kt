@@ -1,11 +1,11 @@
 package com.era.backend.models.entities
 
+import java.time.LocalDate
+import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.javatime.CurrentDateTime
 import org.jetbrains.exposed.v1.javatime.date
 import org.jetbrains.exposed.v1.javatime.datetime
-import java.time.LocalDate
-import java.time.LocalDateTime
 
 /**
  * Mapeo 1:1 de la tabla `usuario` (DICCIONARIO_DATOS.md).

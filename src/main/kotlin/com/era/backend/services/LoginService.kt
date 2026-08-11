@@ -94,7 +94,7 @@ class LoginService(
                 } else {
                     usuarioRepository.findByUsernameForUpdate(identificador)
                 }
-                ?: return@run // NO_ENCONTRADO
+                    ?: return@run // NO_ENCONTRADO
 
             val ahora = LocalDateTime.now()
 

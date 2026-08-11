@@ -3,13 +3,13 @@ package com.era.backend.repositories
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.models.entities.ProgresoUsuarioRow
 import com.era.backend.models.entities.ProgresoUsuarioTable
+import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
-import java.time.LocalDateTime
 
 /**
  * Implementación real de [ProgresoRepository] sobre Exposed (ARQUITECTURA_BASE.md §2.4).

@@ -1,9 +1,9 @@
 package com.era.backend.models.entities
 
+import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.Table
 import org.jetbrains.exposed.v1.javatime.CurrentDateTime
 import org.jetbrains.exposed.v1.javatime.datetime
-import java.time.LocalDateTime
 
 /**
  * Mapeo 1:1 de la tabla `progreso_usuario` (DICCIONARIO_DATOS.md §progreso_usuario):
