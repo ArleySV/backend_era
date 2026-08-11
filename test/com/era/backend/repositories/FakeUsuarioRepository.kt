@@ -79,4 +79,13 @@ class FakeUsuarioRepository : UsuarioRepository {
         val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
         porCorreo[existente.correo] = existente.copy(estado = estado)
     }
+
+    /**
+     * Espejo en memoria de `actualizarAvatar` (Módulo I): muta la clave de storage en la fila
+     * para que `AvatarServiceTest` pueda assertar la persistencia y la compensación.
+     */
+    override fun actualizarAvatar(idUsuario: Long, avatar: String?) {
+        val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
+        porCorreo[existente.correo] = existente.copy(avatar = avatar)
+    }
 }

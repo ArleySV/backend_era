@@ -150,6 +150,17 @@ class ExposedUsuarioRepository : UsuarioRepository {
         }
     }
 
+    /**
+     * Módulo I: `UPDATE usuario SET avatar = ?`. Ejecutado en la transacción de
+     * `AvatarService` (§2.4); la escritura del archivo y su compensación son responsabilidad
+     * del service, no de este UPDATE.
+     */
+    override fun actualizarAvatar(idUsuario: Long, avatar: String?) {
+        UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
+            it[UsuarioTable.avatar] = avatar
+        }
+    }
+
     private fun aFila(fila: ResultRow): UsuarioRow =
         UsuarioRow(
             idUsuario = fila[UsuarioTable.idUsuario].toLong(),

@@ -136,4 +136,18 @@ interface UsuarioRepository {
      * marcación de consumido del token, para que el cambio y el single-use sean atómicos.
      */
     fun actualizarContrasena(idUsuario: Long, contrasenaHash: String)
+
+    /**
+     * Persiste la clave de storage del avatar en `usuario.avatar` (Módulo I, REQ-FUN-06):
+     * `custom:<uuid>.<ext>` si es foto personalizada, o `null`/`preset:*` para limpiar (futuro
+     * PATCH). Es un único UPDATE de columna, espejo de `actualizarContrasena`.
+     *
+     * Debe ejecutarse en la transacción de `AvatarService` (`modulo-i-analisis.md` §2.4): la
+     * escritura del archivo ocurre FUERA de la transacción y, si este UPDATE falla, el service
+     * elimina el archivo recién escrito (compensación) para no dejar huérfanos en disco.
+     *
+     * Seguridad (CLAUDE.md §6): la clave `custom:*` es opaca (UUID) y no contiene datos
+     * personales; aún así, nunca se loguea completa (§5).
+     */
+    fun actualizarAvatar(idUsuario: Long, avatar: String?)
 }

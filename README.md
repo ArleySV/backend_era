@@ -29,8 +29,10 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 | `.\kotlin do <command>` | Ejecutar un comando personalizado (requiere plugin; hoy ninguno) |
 
 > **Variables de entorno:** `application.yaml` resuelve `${VAR}` (system property o
-> variable de entorno). Definir `PORT`, `DB_*`, `JWT_SECRET`, `SMTP_*` antes de
-> `run`/`test`; `.env.example` es solo referencia, la JVM no lo lee automáticamente.
+> variable de entorno). Definir `PORT`, `DB_*`, `JWT_SECRET`, `SMTP_*` y
+> `AVATAR_STORAGE_DIR` antes de `run`/`test`; `.env.example` es solo referencia, la
+> JVM no lo lee automáticamente. `AVATAR_STORAGE_DIR` es obligatoria (fail-fast): si no
+> está definida, el servidor no arranca (ver Módulo I).
 
 ## Comandos de desarrollo
 
@@ -82,6 +84,7 @@ de Calidad, V11).
    $env:DB_USER='<usuario>'; $env:DB_PASSWORD='<password>'
    $env:SMTP_HOST='<placeholder>'; $env:SMTP_PORT='587'
    $env:SMTP_USER='x'; $env:SMTP_PASSWORD='x'; $env:SMTP_FROM='x@era.local'
+   $env:AVATAR_STORAGE_DIR='C:\temp\era_avatares'   # directorio local de avatares (Módulo I); si no existe, el init lo crea
    .\kotlin run
    ```
    Espera el log `Responding at http://127.0.0.1:8080`.
@@ -238,9 +241,25 @@ desincronizarse.
   → 403 `ACCOUNT_INACTIVE`. **Regla de oro:** el contenido del comentario nunca se loguea;
   la auditoría usa solo `idComentario` e `idUsuario`. Diseño aprobado en
   `docs/modulo-h-analisis.md`.
+- **Módulo I (Avatar personalizado) implementado (wiring completo; tests automáticos
+  pendientes):** `PUT`/`GET /api/v1/users/me/avatar` operativos — subida y servido de la
+  foto personalizada **post-verificación y solo con sesión autenticada** (misma barrera
+  `session-jwt` de los Módulos D/E). PUT multipart (`avatar`, hasta **2 MB**) con
+  **whitelist `jpeg/png/webp`** y doble validación (magic bytes + concordancia con el
+  `Content-Type` declarado); RAM acotada (lectura del stream en fragmentos de 8 KB que
+  aborta al superar el límite). El archivo se persiste en disco local (`AVATAR_STORAGE_DIR`,
+  fail-fast al arrancar), con **clave `custom:<uuid>`**, escritura atómica, sidecar de MIME
+  y retención ante soft delete (REQ-FUN-05: nunca se borra). GET responde el binario con
+  `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff` y
+  `Content-Disposition`; **404** si el perfil no tiene foto `custom:*`. **Compensación:** si
+  la actualización de BD falla tras escribir el archivo, este se elimina. Logs de auditoría
+  con `idUsuario`, nunca la clave ni el path. Errores de forma (sin parte, archivo ausente,
+  tamaño, formato, MIME) → 400 `VALIDATION_ERROR` con `details`; sin token / token de
+  reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. Diseño aprobado
+  en `docs/modulo-i-analisis.md`.
 - **Autenticación de sesión:** proveedor JWT `session-jwt` instalado en el arranque
   (`plugins/AuthenticationConfig.kt`) con `challenge` que responde 401 `UNAUTHORIZED`
-  estándar; compartido por los Módulos D/E/F/G/H.
+  estándar; compartido por los Módulos D/E/F/G/H/I.
 - **Capa de datos:** Exposed/Flyway (esquema 12 tablas, V1+V2+V3 aplicadas).
 - **Prueba de humo E2E verificada:** `scripts/smoke_test.ps1` pasa Register → Verify con
   persistencia real en `usuario` / `acudiente` / `configuracion` (ver "Pruebas de Humo").
@@ -265,6 +284,8 @@ desincronizarse.
 | `GET /api/v1/progress/sync` | Snapshot autoritativo del progreso del usuario (Módulo G, CU-12/REQ-FUN-10/11/12). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "progreso": [...], "resumen": { "nivelesCompletados", "totalNiveles": 20, "totalReintentos" } }`. Solo agregados por nivel (`orden`, `estadoNivel`, `intentosTotales`, `intentosFallidosConsecutivos`, `completadoEn`); sin filas de `intento` ni pausas. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. El backend no sirve el catálogo de trivia. |
 | `POST /api/v1/progress/sync` | Sube el estado local acumulado y lo **mergea hacia adelante** (Módulo G, CU-12). Requiere `Authorization: Bearer <token-sesión>`; valida la forma (`progreso` obligatorio, `orden` 1..20, `estadoNivel` ∈ `BLOQUEADO/DISPONIBLE/COMPLETADO`, contadores ≥ 0, sin `orden` duplicado → 400 `VALIDATION_ERROR` con `details`) y la integridad (todo `orden` debe existir en `nivel` → 400 con **cero escrituras**). Persiste **atómicamente**, fija `completadoEn` una sola vez y responde `200 OK` con el snapshot **mergeado y persistido** (un round-trip). Sin token → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. |
 | `POST /api/v1/feedback/comments` | Envío de un comentario/sugerencia (Módulo H, CU-10/REQ-FUN-14). Requiere `Authorization: Bearer <token-sesión>`; body `{ "contenido": "..." }` (**solo** ese campo, máx. 2000 caracteres; el `id_usuario` proviene del token). Responde `200 OK` con `{ "message": "Comentario enviado con éxito." }`. `contenido` vacío o > 2000 → 400 `VALIDATION_ERROR` con `details`; claves desconocidas en el body (p. ej. `idUsuario`) → 400 `INVALID_REQUEST`; sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. El contenido del comentario nunca se loguea. |
+| `PUT /api/v1/users/me/avatar` | Sube/reemplaza la foto personalizada (Módulo I, REQ-FUN-06 CA4, CU-06 3a). Requiere `Authorization: Bearer <token-sesión>`; `multipart/form-data` con la parte `avatar` (binario, máx. 2 MB). Valida **dos veces** (controller lee el stream con RAM acotada; service re-verifica tamaño + **magic bytes** + concordancia MIME declarada) y solo acepta `jpeg`/`png`/`webp`. Persiste en `AVATAR_STORAGE_DIR` con clave `custom:<uuid>` (escritura atómica + sidecar de MIME), actualiza `usuario.avatar` en transacción y responde `200 OK` con `{ "message": "Avatar actualizado con éxito." }`. **Compensación:** si la BD falla tras escribir el archivo, este se elimina. Forma inválida → 400 `VALIDATION_ERROR` con `details`; sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. |
+| `GET /api/v1/users/me/avatar` | Sirve el binario de la foto personalizada (Módulo I, CU-06). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con la imagen (Content-Type real, `Cache-Control: private, no-store`, `X-Content-Type-Options: nosniff`, `Content-Disposition: attachment`). **404 `NOT_FOUND`** si el perfil usa avatar preestablecido (`preset:*`) o el archivo no existe. Sin URL pública: siempre requiere sesión. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. |
 
 Respuestas de error (formato estándar `ErrorDto`): `400` `VALIDATION_ERROR` (con
 `details` por campo) / `INVALID_REQUEST`, `401` `INVALID_CREDENTIALS` /

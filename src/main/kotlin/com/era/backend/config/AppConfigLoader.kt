@@ -40,9 +40,27 @@ fun ApplicationConfig.toAppConfig(): AppConfig {
                 password = path("mail.password"),
                 from = path("mail.from"),
             ),
+        storage =
+            StorageConfig(
+                avatarDir = validarAvatarStorageDir(path("storage.avatarDir")),
+            ),
         // V11: switch explícito de entorno, NO derivado del JWT_SECRET. Default false.
         devMode = System.getenv("APP_DEV_MODE") == "true",
     )
+}
+
+/**
+ * Fail-fast del Módulo I en la carga de configuración (paso 3, `modulo-i-analisis.md` §7.6):
+ * `AVATAR_STORAGE_DIR` debe existir y no estar vacía; un valor ausente/blanco aborta el
+ * arranque antes de tocar BD o disco. La creación del directorio en el filesystem (segunda
+ * capa del fail-fast, cuando la ruta existe pero no es creable) la realiza el `init` de
+ * [com.era.backend.storage.LocalDiskAvatarStorage] en el wiring de `Application.kt`.
+ */
+private fun validarAvatarStorageDir(avatarDir: String): String {
+    require(avatarDir.isNotBlank()) {
+        "La variable de entorno AVATAR_STORAGE_DIR no está definida o está vacía."
+    }
+    return avatarDir
 }
 
 fun Application.loadAppConfig(): AppConfig = environment.config.toAppConfig()

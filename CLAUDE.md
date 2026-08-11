@@ -262,13 +262,15 @@ del cliente (REQ-FUN-06).
 - Proyecto Amper (no Gradle): `module.yaml` + `libs.versions.toml`, wrapper
   `kotlin`/`kotlin.bat`.
 - `src/main/kotlin/com/era/backend/` con endpoints implementados de los Módulos
-  A, A.1, B, C, D, E, F, G y H (ver detalle abajo):
+  A, A.1, B, C, D, E, F, G, H e I (ver detalle abajo):
   - `Application.kt` — wiring completo: `configureAuthentication(config.jwt)`
     antes de `routing {}`, `configurePlugins`, `userRoutes`, `authRoutes`,
-    `progressRoutes` y `feedbackRoutes`.
-  - `config/` (`AppConfig`, `AppConfigLoader`), `database/` (`DatabaseMigrator`,
-    `MigrateRunner`), `plugins/` (`AuthenticationConfig`, `DatabaseFactory`,
-    `StatusPagesConfig`).
+    `progressRoutes` y `feedbackRoutes`; el Módulo I se inyecta por capas
+    Repository → Storage → Service → Controller (`LocalDiskAvatarStorage`
+    tipado como la interfaz `AvatarStorage`, nunca la implementación concreta).
+  - `config/` (`AppConfig`, `AppConfigLoader` — con `StorageConfig` y fail-fast
+    de `AVATAR_STORAGE_DIR`), `database/` (`DatabaseMigrator`, `MigrateRunner`),
+    `plugins/` (`AuthenticationConfig`, `DatabaseFactory`, `StatusPagesConfig`).
   - `models/` (`SesionPrincipal`), `models/dto/` (15 DTOs: register, verify,
     resend, login, password-reset ×3, perfil, eliminar, mensaje, comentario, …),
     `models/entities/` (tablas Exposed, incluida `ComentarioTable`).
@@ -278,10 +280,13 @@ del cliente (REQ-FUN-06).
     `services/` (`RegistrationService`, `OtpService`,
     `VerificationService`, `LoginService`, `PasswordResetService`,
     `JwtTokenService`, `UsuarioService`, `LogoutService`, `ComentarioService`,
-    notificadores SMTP), `controllers/` (`AuthController`, `UsuarioController`,
-    `ProgressController`, `FeedbackController`), `routes/` (`AuthRoutes`,
-    `UserRoutes`, `ProgressRoutes`, `FeedbackRoutes`), `utils/` (`Validators`,
-    `PasswordPolicy`, `AvatarPreset`).
+    `AvatarService`, notificadores SMTP), `controllers/` (`AuthController`,
+    `UsuarioController`, `ProgressController`, `FeedbackController`,
+    `AvatarController`), `routes/` (`AuthRoutes`, `UserRoutes`,
+    `ProgressRoutes`, `FeedbackRoutes`), `storage/` (`AvatarStorage` interfaz,
+    `LocalDiskAvatarStorage` impl disco local, independiente: solo `Application.kt`
+    conoce la implementación concreta), `utils/` (`Validators`, `PasswordPolicy`,
+    `AvatarPreset`, `AvatarValidador`).
 - **Módulos implementados y verificados** (tests automáticos + pruebas manuales):
   - **A (Registro):** `POST /api/v1/auth/register` — validaciones de forma (V4–V9)
     y negocio (V1–V3, política de contraseña), pendiente + OTP hasheado (10 min).
@@ -324,6 +329,21 @@ del cliente (REQ-FUN-06).
     eliminada → 403 `ACCOUNT_INACTIVE`. **Regla de oro:** el contenido del
     comentario nunca se loguea; la auditoría usa solo `idComentario` e `idUsuario`.
     Diseño aprobado en `docs/modulo-h-analisis.md`.
+  - **I (Avatar personalizado):** `PUT`/`GET /api/v1/users/me/avatar` — subida y
+    servido **post-verificación y solo con sesión autenticada** (misma barrera
+    `session-jwt`; sin URL pública). PUT multipart (`avatar`, hasta 2 MB) con
+    whitelist `jpeg/png/webp` y doble validación (magic bytes + Content-Type
+    declarado), RAM acotada (fragmentos de 8 KB que abortan al superar el límite).
+    Persistencia en disco local (`AVATAR_STORAGE_DIR`, fail-fast en la carga de
+    config + creación del directorio en el `init`), clave `custom:<uuid>`,
+    escritura atómica con sidecar de MIME, retención ante soft delete.
+    **Compensación:** si `usuario.avatar` no se actualiza tras escribir el archivo,
+    este se elimina. GET sirve el binario con `Cache-Control: private, no-store`,
+    `nosniff` y `Content-Disposition`; 404 si no hay foto `custom:*`. Logs de
+    auditoría con `idUsuario`, nunca la clave ni el path. Errores de forma → 400
+    `VALIDATION_ERROR` con `details`; sin sesión / token de reseteo → 401
+    `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. Diseño aprobado en
+    `docs/modulo-i-analisis.md`; **tests automáticos pendientes** (Step 2).
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
@@ -347,7 +367,6 @@ del cliente (REQ-FUN-06).
   `ACCOUNT_INACTIVE`).
 
 **Próximos pasos (sugeridos):**
+- Tests automáticos del Módulo I (`AvatarValidadorTest`, `LocalDiskAvatarStorageTest`,
+  `AvatarServiceTest` con compensación, `AvatarRoutesTest` con multipart) — Step 2.
 - Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).
-- Módulo I (avatar personalizado, §8.1): subida y servido post-verificación, solo
-  con sesión autenticada, hasta 2 MB, whitelist `jpeg/png/webp` con doble
-  validación.

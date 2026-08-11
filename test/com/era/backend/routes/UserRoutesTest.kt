@@ -2,6 +2,7 @@ package com.era.backend.routes
 
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.era.backend.config.JwtConfig
+import com.era.backend.controllers.AvatarController
 import com.era.backend.controllers.UsuarioController
 import com.era.backend.models.SesionPrincipal
 import com.era.backend.models.dto.EliminarCuentaRequestDto
@@ -13,8 +14,10 @@ import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
+import com.era.backend.services.AvatarService
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.UsuarioService
+import com.era.backend.storage.FakeAvatarStorage
 import io.ktor.client.request.delete
 import io.ktor.client.request.get
 import io.ktor.client.request.header
@@ -56,7 +59,8 @@ class UserRoutesTest {
                 val fake = FakeUsuarioRepository()
                 seedUsuario(fake)
                 val usuarioService = UsuarioService(fake, TransactionRunner { it() })
-                routing { userRoutes(UsuarioController(usuarioService)) }
+                val avatarService = AvatarService(fake, FakeAvatarStorage(), TransactionRunner { it() })
+                routing { userRoutes(UsuarioController(usuarioService), AvatarController(avatarService)) }
             }
             block(client)
         }

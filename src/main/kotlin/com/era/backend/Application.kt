@@ -2,6 +2,7 @@ package com.era.backend
 
 import com.era.backend.config.loadAppConfig
 import com.era.backend.controllers.AuthController
+import com.era.backend.controllers.AvatarController
 import com.era.backend.controllers.FeedbackController
 import com.era.backend.controllers.ProgressController
 import com.era.backend.controllers.UsuarioController
@@ -23,6 +24,7 @@ import com.era.backend.routes.authRoutes
 import com.era.backend.routes.feedbackRoutes
 import com.era.backend.routes.progressRoutes
 import com.era.backend.routes.userRoutes
+import com.era.backend.services.AvatarService
 import com.era.backend.services.ComentarioService
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
@@ -34,10 +36,13 @@ import com.era.backend.services.RegistrationService
 import com.era.backend.services.SimpleJavaMailOtpNotifier
 import com.era.backend.services.UsuarioService
 import com.era.backend.services.VerificationService
+import com.era.backend.storage.AvatarStorage
+import com.era.backend.storage.LocalDiskAvatarStorage
 import io.ktor.server.application.Application
 import io.ktor.server.application.ApplicationStopped
 import io.ktor.server.netty.EngineMain
 import io.ktor.server.routing.routing
+import java.nio.file.Path
 
 fun main(args: Array<String>) {
     EngineMain.main(args)
@@ -134,12 +139,21 @@ fun Application.module() {
         ComentarioService(usuarioRepository, comentarioRepository, ExposedTransactionRunner)
     val feedbackController = FeedbackController(comentarioService)
 
+    // Módulo I (avatar personalizado, REQ-FUN-06 CA4/CA5/CU-06 3a): inyección por capas
+    // Repository -> Storage -> Service -> Controller. El storage se inyecta SIEMPRE como la
+    // interfaz AvatarStorage (abstracción aprobada, §7.3), nunca la implementación concreta:
+    // migrar a S3 es reemplazar esta línea sin tocar service/controller/rutas. Fail-fast del
+    // filesystem: el `init` de LocalDiskAvatarStorage crea el directorio o aborta el arranque.
+    val avatarStorage: AvatarStorage = LocalDiskAvatarStorage(Path.of(config.storage.avatarDir))
+    val avatarService = AvatarService(usuarioRepository, avatarStorage, ExposedTransactionRunner)
+    val avatarController = AvatarController(avatarService)
+
     // Contrato público de autenticación (Módulos A, A.1, B, C y F): register, verify-email,
     // resend-otp, login, password-reset/request, password-reset/verify, password-reset/confirm,
     // logout.
     routing {
         authRoutes(authController)
-        userRoutes(usuarioController)
+        userRoutes(usuarioController, avatarController)
         progressRoutes(progressController)
         feedbackRoutes(feedbackController)
     }

@@ -34,3 +34,6 @@ mail:
   user: ${SMTP_USER}
   password: ${SMTP_PASSWORD}
   from: ${SMTP_FROM}
+
+storage:
+  avatarDir: ${AVATAR_STORAGE_DIR}
