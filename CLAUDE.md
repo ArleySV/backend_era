@@ -343,7 +343,9 @@ del cliente (REQ-FUN-06).
     auditoría con `idUsuario`, nunca la clave ni el path. Errores de forma → 400
     `VALIDATION_ERROR` con `details`; sin sesión / token de reseteo → 401
     `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. Diseño aprobado en
-    `docs/modulo-i-analisis.md`; **tests automáticos pendientes** (Step 2).
+    `docs/modulo-i-analisis.md`; **66 tests automáticos (Step 2) en verde**:
+    `AvatarValidadorTest` (16), `LocalDiskAvatarStorageTest` (14),
+    `AvatarServiceTest` (20) y `AvatarRoutesTest` (16).
 - Dependencias declaradas: Ktor (server core/netty, content negotiation,
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
@@ -353,11 +355,11 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **196 tests automáticos** (`.\kotlin test`, 22 suites): service y route tests de
+- **257 tests automáticos** (`.\kotlin test`, 26 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
-  de cuenta, sincronización de progreso y comentarios, más manejo de errores y carga
-  de configuración. Verificado con env vars placeholder de `.env.example`
-  (`ConfigLoadTest` las exige).
+  de cuenta, sincronización de progreso y comentarios, **avatar personalizado (Módulo I)**,
+  más manejo de errores y carga de configuración. Verificado con env vars placeholder de
+  `.env.example` (`ConfigLoadTest` las exige).
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
   `password_reset_test.ps1` (flujo completo de recuperación).
@@ -367,6 +369,4 @@ del cliente (REQ-FUN-06).
   `ACCOUNT_INACTIVE`).
 
 **Próximos pasos (sugeridos):**
-- Tests automáticos del Módulo I (`AvatarValidadorTest`, `LocalDiskAvatarStorageTest`,
-  `AvatarServiceTest` con compensación, `AvatarRoutesTest` con multipart) — Step 2.
 - Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).

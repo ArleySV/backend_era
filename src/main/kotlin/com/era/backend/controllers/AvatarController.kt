@@ -20,6 +20,7 @@ import io.ktor.server.response.respondBytes
 import io.ktor.utils.io.ByteReadChannel
 import io.ktor.utils.io.readAvailable
 import java.io.ByteArrayOutputStream
+import kotlinx.io.Source
 
 /**
  * Handler de los endpoints de avatar personalizado (Módulo I: `PUT` y
@@ -60,14 +61,14 @@ class AvatarController(
         val multipart = call.receiveMultipart()
         while (true) {
             val parte = multipart.readPart() ?: break
-            when (parte) {
-                is PartData.FileItem -> {
-                    if (parte.name == CAMPO_AVATAR && bytes == null) {
-                        bytes = leerParteLimitada(parte)
-                        contentType = parte.contentType?.toString()
-                    }
-                }
-                else -> Unit
+            // Ktor 3.4.3 (engine CIO): una parte con `filename` llega como `FileItem`; una parte
+            // sin `filename` se lee entera y se decodifica como texto → `FormItem` (sin bytes
+            // utilizables), por lo que se ignora. `BinaryItem` no lo produce este engine; se
+            // acepta por defensa si algún engine/cliente lo entregara.
+            val esArchivo = parte is PartData.FileItem || parte is PartData.BinaryItem
+            if (bytes == null && esArchivo && parte.name == CAMPO_AVATAR) {
+                bytes = leerParteLimitada(parte)
+                contentType = parte.contentType?.toString()
             }
             parte.dispose()
         }
@@ -115,23 +116,48 @@ class AvatarController(
     /**
      * Lee el canal de la parte multipart con tope de [AvatarValidador.MAX_TAMANO_BYTES], en
      * fragmentos, y **aborta en cuanto se supera el límite** (sin cargar el resto en RAM).
-     * Devuelve el array solo si la parte está completa y dentro del límite.
+     * Devuelve `null` si la parte no es un archivo (campo de formulario u otra clase de `PartData`);
+     * el flujo [subirAvatar] lo interpreta como "no hay foto". Soportan `PartData.FileItem`
+     * (`provider()` es [ByteReadChannel]) y `PartData.BinaryItem` (`provider()` es un
+     * `kotlinx.io.Source`); ambos se leen por fragmentos con el mismo tope.
      */
-    private suspend fun leerParteLimitada(parte: PartData.FileItem): ByteArray {
+    private suspend fun leerParteLimitada(parte: PartData): ByteArray? {
         val limite = AvatarValidador.MAX_TAMANO_BYTES
         val salida = ByteArrayOutputStream(limite)
-        val canal: ByteReadChannel = parte.provider()
         val fragmento = ByteArray(TAMANO_FRAGMENTO)
         var total = 0
-        while (true) {
-            val leidos = canal.readAvailable(fragmento)
-            if (leidos < 0) break
-            if (leidos == 0) continue
+
+        val acumular: (Int) -> Unit = { leidos ->
             total += leidos
             if (total > limite) {
-                throw ValidationException(MENSAJE_TAMANO_EXCEDIDO, listOf(FieldError(CAMPO_AVATAR, MENSAJE_TAMANO_EXCEDIDO)))
+                throw ValidationException(
+                    MENSAJE_TAMANO_EXCEDIDO,
+                    listOf(FieldError(CAMPO_AVATAR, MENSAJE_TAMANO_EXCEDIDO)),
+                )
             }
             salida.write(fragmento, 0, leidos)
+        }
+
+        when (parte) {
+            is PartData.FileItem -> {
+                val canal: ByteReadChannel = parte.provider()
+                while (true) {
+                    val leidos = canal.readAvailable(fragmento)
+                    if (leidos < 0) break
+                    if (leidos == 0) continue
+                    acumular(leidos)
+                }
+            }
+            is PartData.BinaryItem -> {
+                val fuente: Source = parte.provider()
+                while (true) {
+                    val leidos = fuente.readAtMostTo(fragmento, 0, fragmento.size)
+                    if (leidos < 0) break
+                    if (leidos == 0) continue
+                    acumular(leidos)
+                }
+            }
+            else -> return null
         }
         return salida.toByteArray()
     }

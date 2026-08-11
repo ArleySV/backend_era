@@ -148,6 +148,13 @@ despliegue de una sola instancia y avatares ≤ 2 MB; se documenta como candidat
 (`PartData.FileItem` con su `Content-Type`). No hay DTO serializado: multipart se lee por
 partes con `call.receiveMultipart()`; el `filename` del cliente se **ignora**.
 
+> **Contrato técnico (Ktor 3.4.3, engine CIO):** el servidor entrega la parte como
+> `FileItem` **solo si** su `Content-Disposition` incluye `filename`; una parte sin
+> `filename` se lee entera y se decodifica como texto (`FormItem`), perdiendo los bytes.
+> Por tanto, **el cliente Android debe enviar `filename` en la parte `avatar`** (como hace
+> cualquier subida de archivo real con Ktor/OkHttp); si no lo manda, el backend responde
+> 400 "Se requiere un archivo." sin forma de recuperar el binario.
+
 **Response de éxito — 200 OK — `MensajeResponseDto` (decisión aprobada: reutilizado, como en
 E/F/H):**
 
@@ -384,10 +391,10 @@ columnas nuevas** (el binario vive en disco, no en la BD). **Sin dependencias nu
 
 | Paso | Contenido | Estado |
 |---|---|---|
-| 1 | **Estructura y lógica:** `AvatarStorage` (interfaz) + `ContenidoAvatar` en `storage/`, `LocalDiskAvatarStorage`, `AvatarValidador` (magic bytes + fourCC), `AvatarService` (flujo §2.4 con compensación), `AvatarController` (multipart + bytes) | **Pendiente** |
-| 2 | **Tests:** `AvatarValidadorTest`, `LocalDiskAvatarStorageTest` (directorio temporal), `AvatarServiceTest` (FakeAvatarStorage + FakeUsuarioRepository), `AvatarRoutesTest` (HTTP) | **Pendiente** |
-| 3 | **Wiring y configuración:** `AppConfig.storage.avatarDir` + `application.yaml` + `.env.example`, método `actualizarAvatar` en `UsuarioRepository`/`ExposedUsuarioRepository`/`FakeUsuarioRepository`, rutas en `UserRoutes.kt`, `Application.kt` | **Pendiente** |
-| 4 | **Documentación:** README (tabla de endpoints, suite) + CLAUDE.md §9 + `.env.example` actualizado | **Pendiente** |
+| 1 | **Estructura y lógica:** `AvatarStorage` (interfaz) + `ContenidoAvatar` en `storage/`, `LocalDiskAvatarStorage`, `AvatarValidador` (magic bytes + fourCC), `AvatarService` (flujo §2.4 con compensación), `AvatarController` (multipart + bytes) | **Hecho** |
+| 2 | **Tests:** `AvatarValidadorTest`, `LocalDiskAvatarStorageTest` (directorio temporal), `AvatarServiceTest` (FakeAvatarStorage + FakeUsuarioRepository), `AvatarRoutesTest` (HTTP) | **Hecho** (66 tests en verde) |
+| 3 | **Wiring y configuración:** `AppConfig.storage.avatarDir` + `application.yaml` + `.env.example`, método `actualizarAvatar` en `UsuarioRepository`/`ExposedUsuarioRepository`/`FakeUsuarioRepository`, rutas en `UserRoutes.kt`, `Application.kt` | **Hecho** |
+| 4 | **Documentación:** README (tabla de endpoints, suite) + CLAUDE.md §9 + `.env.example` actualizado | **Hecho** |
 
 **Verificación transversal:**
 1. **Independencia de `AvatarStorage`:** ningún archivo fuera de `storage/` (ni controller, ni

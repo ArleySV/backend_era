@@ -3,6 +3,7 @@ package com.era.backend.storage
 import java.nio.file.Files
 import java.nio.file.Path
 import java.nio.file.StandardCopyOption
+import java.util.Base64
 
 /**
  * Implementación de [AvatarStorage] sobre disco local (`modulo-i-analisis.md` §2.3, §7.3).
@@ -11,12 +12,17 @@ import java.nio.file.StandardCopyOption
  * hardcodeado). Garantías:
  * - **Anonimización:** las claves son UUID opacos generados por el servicio; el nombre
  *   original del archivo del cliente nunca llega aquí.
- * - **Anti path-traversal:** la clave se normaliza y se verifica que el path resultante quede
- *   dentro del directorio base. Es una barrera extra: por diseño es estructuralmente
- *   imposible en claves UUID (el service solo genera `custom:<uuid>`).
- * - **Escritura atómica:** los bytes se escriben a `<clave>.tmp` y se mueven con
+ * - **Nombre de archivo multiplataforma:** la clave lógica `custom:<uuid>.<ext>` usa `:`, un
+ *   carácter **ilegal en nombres de archivo Windows** (NTFS rechaza `< > : " / \ | ? *`). Se
+ *   mapea a un nombre seguro mediante **Base64 URL sin padding** (biyectivo: cada clave tiene
+ *   exactamente un nombre y viceversa). La clave lógica en `usuario.avatar` y el prefijo
+ *   `custom:` (que distingue foto personalizada de `preset:*`) NO cambian; solo el nombre en
+ *   disco es opaco.
+ * - **Anti path-traversal:** el nombre codificado es siempre un único segmento seguro; aún así,
+ *   se verifica que el path resultante quede dentro del directorio base (barrera en profundidad).
+ * - **Escritura atómica:** los bytes se escriben a `<nombre>.tmp` y se mueven con
  *   `ATOMIC_MOVE` a la clave definitiva; el tipo MIME canónico se persiste en un archivo
- *   sidecar `<clave>.meta`. Nunca queda un archivo parcial con la clave definitiva.
+ *   sidecar `<nombre>.meta`. Nunca queda un archivo parcial con la clave definitiva.
  * - **Fail-fast en arranque:** [init] crea el directorio o falla claramente ante permisos
  *   negados (decisión 7).
  *
@@ -86,13 +92,26 @@ class LocalDiskAvatarStorage(
         }
     }
 
-    /** Resuelve [clave] contra el directorio base y verifica que el path quede dentro de él. */
+    /**
+     * Resuelve [clave] contra el directorio base. La clave se codifica primero a un nombre de
+     * archivo seguro ([nombreSeguro]); como el resultado es siempre un único segmento, la
+     * verificación `startsWith` es una barrera en profundidad (el nombre nunca puede escapar
+     * del directorio base ni ser un separador).
+     */
     private fun resolver(clave: String): Path {
         if (clave.isBlank()) throw AvatarStorageException("Clave de avatar vacía.")
-        val ruta = dir.resolve(clave).normalize()
+        val ruta = dir.resolve(nombreSeguro(clave)).normalize()
         if (!ruta.startsWith(dir)) {
             throw AvatarStorageException("Clave de avatar inválida.")
         }
         return ruta
     }
+
+    /**
+     * Mapeo biyectivo clave → nombre de archivo multiplataforma (Base64 URL sin padding). El
+     * `:` del prefijo `custom:` es ilegal en Windows; los UUID y extensiones del resto de la
+     * clave son seguros. Al ser biyectivo, [leer] y [eliminar] recalculan el mismo nombre.
+     */
+    private fun nombreSeguro(clave: String): String =
+        Base64.getUrlEncoder().withoutPadding().encodeToString(clave.toByteArray(Charsets.UTF_8))
 }
