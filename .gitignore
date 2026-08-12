@@ -18,3 +18,7 @@ build/
 # Logs (los de Amper ya viven en build/, esto es defensivo)
 *.log
 logs/
+
+# Evidencia de los tests de integración (scripts/integration_test.ps1)
+# Se generan en cada corrida con timestamp; no se versionan, pero quedan locales para el informe.
+test-results/
