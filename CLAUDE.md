@@ -350,16 +350,25 @@ del cliente (REQ-FUN-06).
   kotlinx.json, auth JWT), Exposed (core/java.time/jdbc), HikariCP, logback,
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
 - Scripts auxiliares en `scripts/`: `dev.ps1` (recarga automática), `lint.ps1`
-  (ktlint), `migrate.ps1` (Flyway), `smoke_test.ps1` (E2E register→verify) y
-  `password_reset_test.ps1` (E2E recuperación de contraseña).
+  (ktlint), `migrate.ps1` (Flyway), `smoke_test.ps1` (E2E register→verify),
+  `password_reset_test.ps1` (E2E recuperación de contraseña) e
+  `integration_test.ps1` (tests de integración contra `era_db_test`, con log de
+  evidencia en `test-results/`).
 
 **Tests**
 
-- **257 tests automáticos** (`.\kotlin test`, 26 suites): service y route tests de
+- **260 tests automáticos** (`.\kotlin test`, 27 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
   de cuenta, sincronización de progreso y comentarios, **avatar personalizado (Módulo I)**,
   más manejo de errores y carga de configuración. Verificado con env vars placeholder de
   `.env.example` (`ConfigLoadTest` las exige).
+- **Tests de integración contra MySQL real** (`MySqlIntegrationTest`, 3 tests):
+  idempotencia de migraciones Flyway, constraint UNIQUE de correo y FK
+  `ON DELETE RESTRICT` (soft delete como única vía de baja). Corren sobre la base
+  **`era_db_test`** (nunca `era_db`) vía `scripts/integration_test.ps1`, que valida el
+  preflight (conexión activa = `era_db_test` + `flyway_schema_history` V1+V2+V3),
+  escribe evidencia en `test-results/integration_*.log` (ignorado por git) y aborta
+  con exit 1 si el preflight falla.
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
   `password_reset_test.ps1` (flujo completo de recuperación).
