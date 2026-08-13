@@ -348,19 +348,23 @@ class AuthControllerPasswordResetTest {
     }
 
     @Test
-    fun `reutilizar el mismo token responde 401 en el segundo uso (single-use C-3)`() {
+    fun `reutilizar el mismo token responde 401 RESET_TOKEN_INVALID en el segundo uso (single-use C-3)`() {
         var primerStatus: HttpStatusCode? = null
         var segundoStatus: HttpStatusCode? = null
+        var segundoBody: String? = null
         val body = Json.encodeToString(PasswordResetConfirmRequestDto(tokenPuente(), NUEVA_CONTRASENA, NUEVA_CONTRASENA))
         enAplicacion(
             seedUsuario = { it.seed(usuario()) },
             seedTokens = { it.seed(token()) },
         ) { client ->
             primerStatus = client.postJson("/api/v1/auth/password-reset/confirm", body).first
-            segundoStatus = client.postJson("/api/v1/auth/password-reset/confirm", body).first
+            val segundo = client.postJson("/api/v1/auth/password-reset/confirm", body)
+            segundoStatus = segundo.first
+            segundoBody = segundo.second
         }
         assertEquals(HttpStatusCode.OK, primerStatus)
         assertEquals(HttpStatusCode.Unauthorized, segundoStatus)
+        assertTrue(checkNotNull(segundoBody).contains("\"error\":\"RESET_TOKEN_INVALID\""))
     }
 
     @Test

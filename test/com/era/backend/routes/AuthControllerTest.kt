@@ -219,6 +219,28 @@ class AuthControllerTest {
         assertTrue(body.contains("\"error\":\"EMAIL_ALREADY_REGISTERED\""))
     }
 
+    @Test
+    fun `correo de cuenta eliminada responde 409 EMAIL_LOCKED`() {
+        val (status, body) =
+            registrar(
+                Json.encodeToString(dtoValido),
+                seedUsuario = { it.seed(usuarioActivo().copy(estado = EstadoUsuario.ELIMINADO)) },
+            )
+        assertEquals(HttpStatusCode.Conflict, status)
+        assertTrue(body.contains("\"error\":\"EMAIL_LOCKED\""))
+    }
+
+    @Test
+    fun `username en uso responde 409 CONFLICT`() {
+        val (status, body) =
+            registrar(
+                Json.encodeToString(dtoValido),
+                seedUsuario = { it.seed(usuarioActivo(correo = "otra.persona@example.com")) },
+            )
+        assertEquals(HttpStatusCode.Conflict, status)
+        assertTrue(body.contains("\"error\":\"CONFLICT\""))
+    }
+
     companion object {
         /** Config JWT de test: secreto dummy, solo para firmar tokens en los tests HTTP. */
         val JWT_CONFIG_TEST =

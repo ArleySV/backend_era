@@ -204,10 +204,11 @@ class AuthControllerVerificationTest {
     }
 
     @Test
-    fun `verify-email sin pendiente ni usuario responde 404`() {
-        val (status, _) =
+    fun `verify-email sin pendiente ni usuario responde 404 NOT_FOUND`() {
+        val (status, body) =
             verificar(Json.encodeToString(VerifyEmailRequestDto("laura.perez@example.com", "123456")))
         assertEquals(HttpStatusCode.NotFound, status)
+        assertTrue(body.contains("\"error\":\"NOT_FOUND\""))
     }
 
     @Test

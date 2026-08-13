@@ -401,6 +401,7 @@ class AvatarRoutesTest {
                     header(HttpHeaders.Authorization, "Bearer ${sesionToken()}")
                 }
             assertEquals(HttpStatusCode.NotFound, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"NOT_FOUND\""))
         }
     }
 
