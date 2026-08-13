@@ -19,8 +19,8 @@
 
 **Alcance:** Módulo A (Registro). Cubre el endpoint `POST /api/v1/auth/register` y el ciclo
 de vida del registro hasta la verificación (paso 3). Los contratos de A.1 (`verify-email`,
-`resend-otp`) se documentan en su propia iteración; aquí se definen las decisiones que los
-afectan (P1/P2/P3 y el diseño de `OtpService`).
+`resend-otp`) se documentan en §3A; aquí se definen las decisiones que los afectan
+(P1/P2/P3 y el diseño de `OtpService`).
 
 **Actor principal:** menor de edad, con datos aportados por el acudiente (CU-01, HU-15).
 
@@ -108,6 +108,104 @@ Formato de error: `ErrorDto` de §5.2 (`timestamp`, `status`, `error`, `message`
 
 ---
 
+## 3A. Contrato del Módulo A.1 — verificación de correo y reenvío de OTP
+
+**Base normativa:** `requisitos-funcionales.md` REQ-FUN-01 (paso 3, CA4), `casos-de-uso.md`
+CU-11, `historias-de-usuario.md` HU-01 CA3 y HU-15 CA2. A.1 cierra el ciclo de registro
+iniciado por §3: el pendiente se convierte en la cuenta activa. Las políticas P1 (3 fallos →
+código invalidado), P2 (mín. 60 s entre envíos) y P3 (migración V2/V3) se definen en §6.1 y
+en `ARQUITECTURA_BASE.md` §5.4; aquí solo se fija su efecto en el contrato.
+
+Formato de error: `ErrorDto` de §5.2 (`timestamp`, `status`, `error`, `message`, `path`,
+`details`).
+
+### 3A.1 `POST /api/v1/auth/verify-email`
+
+#### 3A.1.1 Request — `VerifyEmailRequestDto`
+
+| Campo | Tipo | Presencia | Regla |
+|---|---|---|---|
+| `correo` | String | obligatorio | formato email (§4); ≤ 255; normalizado a minúsculas (V5) |
+| `codigo` | String | obligatorio | exactamente 6 dígitos (`^\d{6}$`, REQ-FUN-01 CA4) |
+
+#### 3A.1.2 Response de éxito — 200 OK
+
+```json
+{
+  "message": "Correo verificado. Cuenta activada."
+}
+```
+
+Solo el mensaje (mínimo privilegio, CLAUDE.md §6): no se devuelve correo, datos del menor,
+ni el OTP. El OTP correcto y vigente dispara la **conversión transaccional** (§2): se crean
+`usuario` + `acudiente` + `configuracion` (con defaults) y se consume el pendiente en una
+única transacción con `FOR UPDATE` (anti-TOCTOU). La cuenta queda `estado = ACTIVO` (HU-15
+CA2).
+
+#### 3A.1.3 Códigos de estado (éxito y errores)
+
+| Status | `error` | Cuándo |
+|---|---|---|
+| 200 | — | Éxito: OTP correcto y vigente; conversión transaccional y consumo del pendiente |
+| 400 | `VALIDATION_ERROR` | Falla de forma (controller): `correo` o `codigo`; con `details` por campo |
+| 400 | `INVALID_REQUEST` | JSON malformado o body ausente (lo produce StatusPages) |
+| 401 | `OTP_INVALID_OR_EXPIRED` | Código incorrecto, vencido o límite P1 alcanzado; mensaje genérico, no revela la causa (P1) |
+| 404 | `NOT_FOUND` | Defensivo: sin `registro_pendiente` ni usuario para el correo |
+| 409 | `EMAIL_ALREADY_VERIFIED` | Sin pendiente pero usuario activo: el correo ya fue verificado (decisión del propietario) |
+| 500 | `INTERNAL_ERROR` | Error inesperado; stack trace solo en servidor |
+
+### 3A.2 `POST /api/v1/auth/resend-otp`
+
+#### 3A.2.1 Request — `ResendOtpRequestDto`
+
+| Campo | Tipo | Presencia | Regla |
+|---|---|---|---|
+| `correo` | String | obligatorio | formato email (§4); ≤ 255; normalizado a minúsculas (V5) |
+
+#### 3A.2.2 Response de éxito — 200 OK
+
+```json
+{
+  "message": "Código de verificación enviado al correo."
+}
+```
+
+Mensaje **idéntico** al del envío inicial del registro (§3.2) a propósito (anti-enumeración):
+se responde 200 con este mensaje aunque no exista un pendiente, y en ese caso **no se envía
+nada** — el endpoint nunca confirma si un correo está en proceso de registro. Cuando sí hay
+pendiente, el OTP nuevo invalida el anterior (P2) y reinicia `expira_en` a `now + 10 min`.
+
+#### 3A.2.3 Códigos de estado (éxito y errores)
+
+| Status | `error` | Cuándo |
+|---|---|---|
+| 200 | — | Éxito: OTP regenerado y reenviado, o respuesta genérica sin envío si no hay pendiente |
+| 400 | `VALIDATION_ERROR` | Falla de forma (controller): `correo`; con `details` por campo |
+| 400 | `INVALID_REQUEST` | JSON malformado o body ausente (lo produce StatusPages) |
+| 429 | `OTP_RESEND_THROTTLED` | Reenvío antes de 60 s desde `registro_pendiente.ultimo_envio_en` (P2) |
+| 500 | `INTERNAL_ERROR` | Error inesperado; stack trace solo en servidor |
+
+### 3A.3 Decisiones de diseño de A.1
+
+- **A1-D1 — `verify-email` distingue 401/404/409 (tradeoff de anti-enumeración).** A
+  diferencia de `resend-otp`, del login (401 genérico) y del Módulo C (respuesta idéntica),
+  `verify-email` expone tres estados del correo: 401 (hay pendiente, código inválido), 409
+  (cuenta activa ya verificada), 404 (nada). *Justificación:* el OTP es el verdadero gate —
+  sin un código correcto y vigente no se activa nada; el estado revelado es de bajo valor y
+  queda acotado a la ventana de 10 min del pendiente. El 409, además, evita que el cliente
+  reintente un flujo ya consumido. Se mantiene a propósito, con 404 solo donde es seguro
+  informar (decisión del propietario, 2026-08-12).
+- **A1-D2 — Mensaje de éxito de verify distinto del de envío/reenvío.** "Correo verificado.
+  Cuenta activada." comunica que el flujo terminó y no queda OTP pendiente; reutilizar el
+  mensaje genérico de §3.2 induciría a error al confirmar un segundo envío.
+- **A1-D3 — Contador P1 dentro de la transacción, throw fuera.** El incremento de
+  `intentos_fallidos` se persiste dentro del bloque transaccional y la excepción genérica se
+  lanza fuera, para que el incremento se commitee (un throw interno haría rollback). Al
+  llegar a 3, `OtpService` rechaza cualquier verificación posterior: el código queda
+  invalidado hasta un reenvío (P2).
+
+---
+
 ## 4. Separación de validaciones: controller vs service
 
 **Controller (forma/tipo/presencia — primera barrera, ARQUITECTURA_BASE §2.2):**
@@ -186,10 +284,13 @@ la fila sigue existiendo).
 
 **V2 — Limpieza lazy de `registro_pendiente` expirado.**
 El diccionario indica que el correo "libera automáticamente si expira sin verificar", pero
-no existe job de limpieza. *Justificación:* limpieza lazy en el check de unicidad (y en
-verify/resend): si una fila tiene `expira_en` pasado, se elimina y el nuevo registro se
-permite. Evita un scheduler para un caso borde y mantiene la invariante de unicidad sin
-reservas muertas.
+no existe job de limpieza. *Justificación:* la limpieza lazy ocurre **solo** en el check de
+unicidad de `RegistrationService` (§4): si una fila tiene `expira_en` pasado, se elimina y
+el nuevo registro se permite. En `verify-email` un pendiente vencido se trata como código
+inválido → 401 `OTP_INVALID_OR_EXPIRED` (genérico, P1), y en `resend-otp` la fila vencida
+regenera el código sin problema (P2). Ninguno de los dos borra la fila ni lo necesita: el
+correo se libera en el siguiente intento de registro. Evita un scheduler para un caso borde
+y mantiene la invariante de unicidad sin reservas muertas.
 
 **V3 — Qué cuenta como "dato personal" en la contraseña (REQ-FUN-01 CA2).**
 *Justificación:* la especificación no define los datos; se adopta la interpretación mínima
