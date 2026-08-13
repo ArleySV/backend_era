@@ -190,6 +190,7 @@ class AuthControllerLoginTest {
         val (status, body) =
             login(Json.encodeToString(LoginRequestDto("x".repeat(256), CONTRASENA)))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"usuarioOCorreo\""))
     }
 
@@ -198,6 +199,7 @@ class AuthControllerLoginTest {
         val (status, body) =
             login(Json.encodeToString(LoginRequestDto("mariacamila", "x".repeat(73))))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"contrasena\""))
     }
 

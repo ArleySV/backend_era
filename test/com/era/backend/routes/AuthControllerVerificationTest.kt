@@ -225,6 +225,7 @@ class AuthControllerVerificationTest {
         val (status, body) =
             verificar(Json.encodeToString(VerifyEmailRequestDto("correo-malformado", "123456")))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"correo\""))
     }
 
@@ -265,6 +266,7 @@ class AuthControllerVerificationTest {
         val (status, body) =
             reenviar(Json.encodeToString(ResendOtpRequestDto("correo-malformado")))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"correo\""))
     }
 

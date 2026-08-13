@@ -233,6 +233,7 @@ class ProgressControllerTest {
                     setBody("""{"progreso":[{"orden":1,"estadoNivel":"legendario"}]}""")
                 }
             assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"VALIDATION_ERROR\""))
             assertTrue(response.bodyAsText().contains("\"field\":\"progreso[0].estadoNivel\""))
         }
     }
@@ -248,6 +249,7 @@ class ProgressControllerTest {
                     setBody(cuerpo(item(1, intentosTotales = -1)))
                 }
             assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"VALIDATION_ERROR\""))
             assertTrue(response.bodyAsText().contains("\"field\":\"progreso[0].intentosTotales\""))
         }
     }

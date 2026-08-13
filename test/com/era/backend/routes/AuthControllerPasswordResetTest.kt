@@ -259,6 +259,7 @@ class AuthControllerPasswordResetTest {
     fun `request con correo vacio responde 400 con details de campo`() {
         val (status, body) = solicitar(Json.encodeToString(PasswordResetRequestDto("")))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"correo\""))
     }
 
@@ -314,6 +315,7 @@ class AuthControllerPasswordResetTest {
         val (status, body) =
             verificar(Json.encodeToString(PasswordResetVerifyRequestDto("laura.perez@example.com", "12ab")))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"codigo\""))
     }
 
@@ -388,6 +390,7 @@ class AuthControllerPasswordResetTest {
                 seedTokens = { it.seed(token()) },
             )
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"contrasena\""))
     }
 
@@ -400,6 +403,7 @@ class AuthControllerPasswordResetTest {
                 seedTokens = { it.seed(token()) },
             )
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"confirmarContrasena\""))
     }
 
@@ -412,6 +416,7 @@ class AuthControllerPasswordResetTest {
                 seedTokens = { it.seed(token()) },
             )
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"resetToken\""))
     }
 

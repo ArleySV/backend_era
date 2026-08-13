@@ -166,6 +166,7 @@ class AuthControllerTest {
         val dto = dtoValido.copy(fechaNacimiento = "2100-01-01")
         val (status, body) = registrar(Json.encodeToString(dto))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"fechaNacimiento\""))
     }
 
@@ -174,6 +175,7 @@ class AuthControllerTest {
         val dto = dtoValido.copy(cedulaAcudiente = "123")
         val (status, body) = registrar(Json.encodeToString(dto))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"cedulaAcudiente\""))
     }
 
@@ -182,6 +184,7 @@ class AuthControllerTest {
         val dto = dtoValido.copy(avatar = "preset:99")
         val (status, body) = registrar(Json.encodeToString(dto))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"avatar\""))
     }
 
@@ -190,6 +193,7 @@ class AuthControllerTest {
         val dto = dtoValido.copy(confirmarContrasena = "Otra#2025")
         val (status, body) = registrar(Json.encodeToString(dto))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"confirmarContrasena\""))
     }
 
@@ -198,6 +202,7 @@ class AuthControllerTest {
         val dto = dtoValido.copy(nombreUsuario = "maria camila")
         val (status, body) = registrar(Json.encodeToString(dto))
         assertEquals(HttpStatusCode.BadRequest, status)
+        assertTrue(body.contains("\"error\":\"VALIDATION_ERROR\""))
         assertTrue(body.contains("\"field\":\"nombreUsuario\""))
     }
 
