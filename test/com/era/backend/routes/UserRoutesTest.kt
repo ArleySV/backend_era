@@ -1,6 +1,7 @@
 package com.era.backend.routes
 
 import at.favre.lib.crypto.bcrypt.BCrypt
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AvatarController
 import com.era.backend.controllers.UsuarioController
@@ -128,6 +129,10 @@ class UserRoutesTest {
             assertEquals("laura.perez@example.com", perfil.correo)
             assertEquals("mariacamila", perfil.nombreUsuario)
             assertEquals("preset:1", perfil.avatar)
+            assertExactKeys(
+                response.bodyAsText(),
+                "" to setOf("nombreMenor", "fechaNacimiento", "correo", "nombreUsuario", "avatar"),
+            )
         }
     }
 
@@ -155,6 +160,11 @@ class UserRoutesTest {
             val body = response.bodyAsText()
             assertFalse(body.contains(HASH_CONTRASENA), "el hash no debe aparecer")
             assertFalse(body.contains("contrasena"), "no debe haber campo de contraseña")
+            assertExactKeys(
+                body,
+                "" to setOf("nombreMenor", "fechaNacimiento", "correo", "nombreUsuario", "avatar"),
+            )
+            assertFalse(body.contains("cedulaAcudiente"), "la cédula no debe aparecer")
         }
     }
 
@@ -186,6 +196,7 @@ class UserRoutesTest {
             assertEquals(HttpStatusCode.OK, response.status)
             val mensaje = Json.decodeFromString<MensajeResponseDto>(response.bodyAsText())
             assertEquals("Cuenta eliminada. Tus datos se conservan.", mensaje.message)
+            assertExactKeys(response.bodyAsText(), "" to setOf("message"))
         }
     }
 

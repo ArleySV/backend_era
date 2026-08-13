@@ -1,5 +1,6 @@
 package com.era.backend.routes
 
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.ProgressController
 import com.era.backend.models.dto.ProgresoSyncItemDto
@@ -136,6 +137,11 @@ class ProgressControllerTest {
             assertEquals(0, snapshot.resumen.nivelesCompletados)
             assertEquals(20, snapshot.resumen.totalNiveles)
             assertEquals(0, snapshot.resumen.totalReintentos)
+            assertExactKeys(
+                response.bodyAsText(),
+                "" to setOf("progreso", "resumen"),
+                "resumen" to setOf("nivelesCompletados", "totalNiveles", "totalReintentos"),
+            )
         }
     }
 
@@ -186,6 +192,12 @@ class ProgressControllerTest {
             val disponible = snapshot.progreso.single { it.orden == 2 }
             assertTrue(completado.completadoEn != null, "completadoEn lo fija el servidor")
             assertTrue(disponible.completadoEn == null, "el nivel disponible no lleva marca")
+            assertExactKeys(
+                response.bodyAsText(),
+                "" to setOf("progreso", "resumen"),
+                "resumen" to setOf("nivelesCompletados", "totalNiveles", "totalReintentos"),
+                "progreso[*]" to setOf("orden", "estadoNivel", "intentosTotales", "completadoEn", "ultimaInteraccion"),
+            )
         }
     }
 

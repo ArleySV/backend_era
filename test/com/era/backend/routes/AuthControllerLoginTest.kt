@@ -3,6 +3,7 @@ package com.era.backend.routes
 import at.favre.lib.crypto.bcrypt.BCrypt
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.LoginRequestDto
@@ -152,6 +153,7 @@ class AuthControllerLoginTest {
         assertEquals("1", decoded.subject)
         assertEquals(30 * 24 * 60L, (decoded.expiresAt.time - decoded.issuedAt.time) / 60_000L)
         assertNotNull(decoded.id, "el token debe llevar un jti único")
+        assertExactKeys(body, "" to setOf("token"))
     }
 
     @Test
@@ -163,6 +165,7 @@ class AuthControllerLoginTest {
             )
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"token\""))
+        assertExactKeys(body, "" to setOf("token"))
     }
 
     // ── Primera barrera: validación de forma (400 VALIDATION_ERROR con details) ───────

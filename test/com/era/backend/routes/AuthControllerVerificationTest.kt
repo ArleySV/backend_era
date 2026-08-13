@@ -1,5 +1,6 @@
 package com.era.backend.routes
 
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.ResendOtpRequestDto
@@ -179,6 +180,7 @@ class AuthControllerVerificationTest {
             )
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"message\""))
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test
@@ -240,6 +242,7 @@ class AuthControllerVerificationTest {
             )
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"message\""))
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test

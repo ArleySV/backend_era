@@ -1,5 +1,6 @@
 ﻿package com.era.backend.routes
 
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AvatarController
 import com.era.backend.controllers.UsuarioController
@@ -170,6 +171,7 @@ class AvatarRoutesTest {
             val response = subirAvatar(jpeg(), "image/jpeg")
             assertEquals(HttpStatusCode.OK, response.status)
             assertTrue(response.bodyAsText().contains("\"message\":\"Avatar actualizado con éxito.\""))
+            assertExactKeys(response.bodyAsText(), "" to setOf("message"))
         }
         val clave = usuarios.findById(1L)!!.avatar!!
         assertTrue(clave.startsWith("custom:"))

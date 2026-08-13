@@ -1,5 +1,6 @@
 package com.era.backend.routes
 
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.RegisterRequestDto
@@ -148,6 +149,7 @@ class AuthControllerTest {
         assertEquals(HttpStatusCode.Created, status)
         assertTrue(body.contains("\"message\""))
         assertTrue(body.contains("verificación"))
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     // ── Primera barrera: validación de forma (400 VALIDATION_ERROR con details) ─────

@@ -1,5 +1,6 @@
 package com.era.backend.routes
 
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.FeedbackController
 import com.era.backend.models.entities.EstadoUsuario
@@ -119,6 +120,7 @@ class FeedbackControllerTest {
                 }
             assertEquals(HttpStatusCode.OK, response.status)
             assertTrue(response.bodyAsText().contains("\"message\":\"Comentario enviado con éxito.\""))
+            assertExactKeys(response.bodyAsText(), "" to setOf("message"))
         }
         assertEquals(1, comentarios.size())
         assertEquals("¡Me encantó el nivel 3!", comentarios.todos().single().contenido)
@@ -135,6 +137,7 @@ class FeedbackControllerTest {
                     setBody(cuerpo("a".repeat(2000)))
                 }
             assertEquals(HttpStatusCode.OK, response.status)
+            assertExactKeys(response.bodyAsText(), "" to setOf("message"))
         }
     }
 

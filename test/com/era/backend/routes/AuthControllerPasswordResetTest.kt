@@ -1,6 +1,7 @@
 package com.era.backend.routes
 
 import at.favre.lib.crypto.bcrypt.BCrypt
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.LoginRequestDto
@@ -238,6 +239,7 @@ class AuthControllerPasswordResetTest {
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"message\""))
         assertTrue(!body.contains("laura.perez"), "no debe repetir el correo en la respuesta")
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test
@@ -245,6 +247,7 @@ class AuthControllerPasswordResetTest {
         val (status, body) = solicitar(Json.encodeToString(PasswordResetRequestDto("no.existe@example.com")))
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"message\""))
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test
@@ -287,6 +290,7 @@ class AuthControllerPasswordResetTest {
             )
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"resetToken\""))
+        assertExactKeys(body, "" to setOf("resetToken"))
     }
 
     @Test
@@ -333,6 +337,7 @@ class AuthControllerPasswordResetTest {
             )
         assertEquals(HttpStatusCode.OK, status)
         assertTrue(body.contains("\"message\""))
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test

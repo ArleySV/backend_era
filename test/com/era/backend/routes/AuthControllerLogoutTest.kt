@@ -2,6 +2,7 @@ package com.era.backend.routes
 
 import com.auth0.jwt.JWT
 import com.auth0.jwt.algorithms.Algorithm
+import com.era.backend.assertExactKeys
 import com.era.backend.config.JwtConfig
 import com.era.backend.controllers.AuthController
 import com.era.backend.models.dto.MensajeResponseDto
@@ -118,6 +119,7 @@ class AuthControllerLogoutTest {
         assertEquals(HttpStatusCode.OK, status)
         val mensaje = Json.decodeFromString<MensajeResponseDto>(body)
         assertEquals("Sesión cerrada.", mensaje.message)
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test
@@ -127,6 +129,7 @@ class AuthControllerLogoutTest {
         assertEquals(HttpStatusCode.OK, status)
         assertFalse(body.contains("idUsuario"), "el id del usuario no se expone")
         assertFalse(body.contains("\"token\""), "el token no se expone en la respuesta")
+        assertExactKeys(body, "" to setOf("message"))
     }
 
     @Test
