@@ -29,7 +29,8 @@ import java.time.LocalDateTime
  *   (`max` cliente/servidor). No se valida la cadena de desbloqueo (lenient, §5.3).
  * - **Atomicidad (§6):** el POST procesa el lote completo dentro de UNA transacción de
  *   `TransactionRunner`; cualquier fallo (cuenta inactiva, `orden` inexistente, error de BD)
- *   revierte todo y no deja estados parciales.
+ *   revierte todo y no deja estados parciales. Los `FOR UPDATE` se toman por `orden`
+ *   ascendente (decisión (a), 2026-08-12): orden determinista de locks sin deadlocks.
  * - **Integridad contra el catálogo (§5.2):** antes de escribir se valida que todo `orden`
  *   recibido exista en `nivel`; si falta alguno → 400 `VALIDATION_ERROR` con **cero** escrituras.
  * - **Resumen en el servidor (§7):** `totalReintentos = SUM(intentos_totales)`,
@@ -76,8 +77,10 @@ class ProgressSyncService(
      * Mergea hacia adelante, persiste y devuelve el snapshot resultante (POST,
      * `modulo-g-analisis.md` §4.2) en un **único round-trip** (CU-12 paso 3).
      *
-     * Orden dentro de la transacción (§6): verificar cuenta activa → validar catálogo de
-     * todo el lote (§5.2, **antes** de escribir) → merge/upsert por nivel (§3) → snapshot.
+     * Orden dentro de la transacción (§6): verificar cuenta activa → ordenar el lote por
+     * `orden` (locks de fila en orden consistente, sin deadlocks entre syncs concurrentes
+     * del mismo usuario) → validar catálogo de todo el lote (§5.2, **antes** de escribir) →
+     * merge/upsert por nivel (§3) → snapshot.
      *
      * Respuestas: 200 con el snapshot mergeado · 400 `VALIDATION_ERROR` (integridad §5.2,
      * con rollback total) · 403 `ACCOUNT_INACTIVE` · 404 defensivo.
@@ -87,11 +90,16 @@ class ProgressSyncService(
         transactionRunner.run {
             verificarCuentaActiva(idUsuario)
 
+            // §6 — adquisición de locks en orden determinista (decisión (a), 2026-08-12):
+            // los `FOR UPDATE` de `progreso_usuario` se toman por `orden` ascendente; así dos
+            // syncs concurrentes del mismo usuario nunca deadlockean por orden invertido.
+            val itemsOrdenados = items.sortedBy { it.orden }
+
             // §5.2 — validación de catálogo de TODO el lote antes de escribir nada:
             // si un `orden` no existe, la sincronización no persiste ningún nivel.
-            validarCatalogo(items)
+            validarCatalogo(itemsOrdenados)
 
-            for (item in items) {
+            for (item in itemsOrdenados) {
                 // Invariante: `validarCatalogo` garantizó la existencia del `orden`; si el
                 // literal de estado fuera inválido (defensa en profundidad, el controller ya
                 // validó la forma §5.1) el throw aborta la transacción → rollback total (§6).

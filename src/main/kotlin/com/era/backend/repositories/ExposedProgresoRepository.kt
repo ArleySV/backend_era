@@ -7,6 +7,7 @@ import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
@@ -29,6 +30,7 @@ class ExposedProgresoRepository : ProgresoRepository {
                 (ProgresoUsuarioTable.idUsuario eq idUsuario.toInt()) and
                     (ProgresoUsuarioTable.idNivel eq idNivel.toInt())
             }
+            .forUpdate(ForUpdateOption.ForUpdate)
             .firstOrNull()
             ?.let { aFila(it) }
 
