@@ -8,6 +8,7 @@ import com.era.backend.models.dto.ProgresoSyncRequestDto
 import com.era.backend.models.dto.ProgresoSyncResponseDto
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.models.entities.EstadoUsuario
+import com.era.backend.models.entities.ProgresoUsuarioRow
 import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
@@ -48,6 +49,7 @@ class ProgressControllerTest {
     private fun app(
         seedUsuario: (FakeUsuarioRepository) -> Unit,
         seedNiveles: (FakeNivelRepository) -> Unit = { it.seedCatalogoCompleto() },
+        seedProgreso: (FakeProgresoRepository) -> Unit = {},
         block: suspend io.ktor.client.HttpClient.() -> Unit,
     ) {
         testApplication {
@@ -59,6 +61,7 @@ class ProgressControllerTest {
                 val niveles = FakeNivelRepository()
                 seedNiveles(niveles)
                 val progreso = FakeProgresoRepository()
+                seedProgreso(progreso)
                 val service = ProgressSyncService(usuarios, niveles, progreso, TransactionRunner { it() })
                 routing { progressRoutes(ProgressController(service)) }
             }
@@ -97,6 +100,27 @@ class ProgressControllerTest {
             estadoNivel = estado.valor,
             intentosTotales = intentosTotales,
             intentosFallidosConsecutivos = intentosFallidosConsecutivos,
+        )
+
+    /** Fila de progreso sembrada: `idNivel` y `idProgreso` = `orden` (catálogo secuencial). */
+    private fun rowProgreso(
+        orden: Int,
+        estado: EstadoNivel,
+        intentosTotales: Int,
+        completadoEn: LocalDateTime?,
+        ultimaInteraccion: LocalDateTime,
+    ): ProgresoUsuarioRow =
+        ProgresoUsuarioRow(
+            idProgreso = orden.toLong(),
+            idUsuario = 1L,
+            idNivel = orden.toLong(),
+            estadoNivel = estado,
+            intentosTotales = intentosTotales,
+            intentosFallidosConsecutivos = 0,
+            pausaActiva = false,
+            pausaHasta = null,
+            completadoEn = completadoEn,
+            ultimaInteraccion = ultimaInteraccion,
         )
 
     // ── GET /api/v1/progress/sync ────────────────────────────────────────────────────
@@ -141,6 +165,74 @@ class ProgressControllerTest {
                 response.bodyAsText(),
                 "" to setOf("progreso", "resumen"),
                 "resumen" to setOf("nivelesCompletados", "totalNiveles", "totalReintentos"),
+            )
+        }
+    }
+
+    @Test
+    fun `GET con snapshot no vacio responde los 5 campos de NivelProgresoDto con datos reales`() {
+        app(
+            seedUsuario = { it.seed(usuarioActivo()) },
+            seedProgreso = {
+                it.seed(
+                    rowProgreso(
+                        orden = 1,
+                        estado = EstadoNivel.COMPLETADO,
+                        intentosTotales = 7,
+                        completadoEn = LocalDateTime.of(2026, 8, 10, 10, 15),
+                        ultimaInteraccion = LocalDateTime.of(2026, 8, 10, 10, 30),
+                    ),
+                )
+                it.seed(
+                    rowProgreso(
+                        orden = 2,
+                        estado = EstadoNivel.DISPONIBLE,
+                        intentosTotales = 3,
+                        completadoEn = null,
+                        ultimaInteraccion = LocalDateTime.of(2026, 8, 10, 9, 45),
+                    ),
+                )
+                it.seed(
+                    rowProgreso(
+                        orden = 5,
+                        estado = EstadoNivel.BLOQUEADO,
+                        intentosTotales = 0,
+                        completadoEn = null,
+                        ultimaInteraccion = LocalDateTime.of(2026, 8, 10, 8, 0),
+                    ),
+                )
+            },
+        ) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                get("/api/v1/progress/sync") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val snapshot = Json.decodeFromString<ProgresoSyncResponseDto>(response.bodyAsText())
+            assertEquals(3, snapshot.progreso.size)
+            assertEquals(listOf(1, 2, 5), snapshot.progreso.map { it.orden }.sorted())
+            val nivel1 = snapshot.progreso.single { it.orden == 1 }
+            val nivel2 = snapshot.progreso.single { it.orden == 2 }
+            val nivel5 = snapshot.progreso.single { it.orden == 5 }
+            assertEquals("completado", nivel1.estadoNivel)
+            assertEquals(7, nivel1.intentosTotales)
+            assertEquals("2026-08-10T10:15", nivel1.completadoEn)
+            assertEquals("2026-08-10T10:30", nivel1.ultimaInteraccion)
+            assertEquals("disponible", nivel2.estadoNivel)
+            assertEquals(3, nivel2.intentosTotales)
+            assertEquals(null, nivel2.completadoEn)
+            assertEquals("bloqueado", nivel5.estadoNivel)
+            assertEquals(0, nivel5.intentosTotales)
+            assertEquals(null, nivel5.completadoEn)
+            assertEquals(1, snapshot.resumen.nivelesCompletados)
+            assertEquals(20, snapshot.resumen.totalNiveles)
+            assertEquals(10, snapshot.resumen.totalReintentos)
+            assertExactKeys(
+                response.bodyAsText(),
+                "" to setOf("progreso", "resumen"),
+                "resumen" to setOf("nivelesCompletados", "totalNiveles", "totalReintentos"),
+                "progreso[*]" to setOf("orden", "estadoNivel", "intentosTotales", "completadoEn", "ultimaInteraccion"),
             )
         }
     }
@@ -192,6 +284,75 @@ class ProgressControllerTest {
             val disponible = snapshot.progreso.single { it.orden == 2 }
             assertTrue(completado.completadoEn != null, "completadoEn lo fija el servidor")
             assertTrue(disponible.completadoEn == null, "el nivel disponible no lleva marca")
+            assertExactKeys(
+                response.bodyAsText(),
+                "" to setOf("progreso", "resumen"),
+                "resumen" to setOf("nivelesCompletados", "totalNiveles", "totalReintentos"),
+                "progreso[*]" to setOf("orden", "estadoNivel", "intentosTotales", "completadoEn", "ultimaInteraccion"),
+            )
+        }
+    }
+
+    @Test
+    fun `POST con filas existentes responde items que reflejan el merge hacia adelante`() {
+        app(
+            seedUsuario = { it.seed(usuarioActivo()) },
+            seedProgreso = {
+                it.seed(
+                    rowProgreso(
+                        orden = 1,
+                        estado = EstadoNivel.COMPLETADO,
+                        intentosTotales = 10,
+                        completadoEn = LocalDateTime.of(2026, 8, 10, 10, 15),
+                        ultimaInteraccion = LocalDateTime.of(2026, 8, 10, 10, 30),
+                    ),
+                )
+                it.seed(
+                    rowProgreso(
+                        orden = 2,
+                        estado = EstadoNivel.DISPONIBLE,
+                        intentosTotales = 2,
+                        completadoEn = null,
+                        ultimaInteraccion = LocalDateTime.of(2026, 8, 10, 9, 45),
+                    ),
+                )
+            },
+        ) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/sync") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody(
+                        cuerpo(
+                            item(1, EstadoNivel.DISPONIBLE, intentosTotales = 3),
+                            item(2, EstadoNivel.COMPLETADO, intentosTotales = 4),
+                            item(3, EstadoNivel.COMPLETADO, intentosTotales = 1),
+                        ),
+                    )
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val snapshot = Json.decodeFromString<ProgresoSyncResponseDto>(response.bodyAsText())
+            assertEquals(listOf(1, 2, 3), snapshot.progreso.map { it.orden }.sorted())
+            val nivel1 = snapshot.progreso.single { it.orden == 1 }
+            val nivel2 = snapshot.progreso.single { it.orden == 2 }
+            val nivel3 = snapshot.progreso.single { it.orden == 3 }
+            assertEquals("completado", nivel1.estadoNivel)
+            assertEquals(10, nivel1.intentosTotales)
+            assertEquals("2026-08-10T10:15", nivel1.completadoEn)
+            assertEquals("completado", nivel2.estadoNivel)
+            assertEquals(4, nivel2.intentosTotales)
+            assertTrue(nivel2.completadoEn != null, "completadoEn lo fija el servidor en la transicion")
+            assertEquals("completado", nivel3.estadoNivel)
+            assertEquals(1, nivel3.intentosTotales)
+            assertTrue(nivel3.completadoEn != null, "completadoEn lo fija el servidor en la transicion")
+            for (itemRespuesta in snapshot.progreso) {
+                assertTrue(itemRespuesta.ultimaInteraccion.isNotBlank(), "ultimaInteraccion siempre presente")
+                LocalDateTime.parse(itemRespuesta.ultimaInteraccion)
+            }
+            assertEquals(3, snapshot.resumen.nivelesCompletados)
+            assertEquals(20, snapshot.resumen.totalNiveles)
+            assertEquals(15, snapshot.resumen.totalReintentos)
             assertExactKeys(
                 response.bodyAsText(),
                 "" to setOf("progreso", "resumen"),
