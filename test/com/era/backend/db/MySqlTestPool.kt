@@ -25,6 +25,10 @@ object MySqlTestPool {
         (System.getenv("TEST_DB_NAME")?.takeIf { it.isNotBlank() } ?: "era_db_test")
             .also {
                 require(it != "era_db") {
+                    // Límite del guard (2026-08-12): protege por NOMBRE contra era_db; NO
+                    // protege contra un TEST_DB_NAME mal tipeado que apunte a otra base real
+                    // distinta de era_db_test (ej. era_db_staging). La verificación runtime de
+                    // la base activa la hace verificarBase() (SELECT DATABASE()).
                     "Los tests de integración nunca deben apuntar a la base de producción era_db."
                 }
             }
@@ -113,6 +117,35 @@ object MySqlTestPool {
                 rs.next()
                 return rs.getLong(1)
             }
+        }
+    }
+
+    /** Siembra el catálogo `nivel` (orden 1..20); V1 no trae INSERTs. */
+    fun insertarCatalogoNiveles(con: Connection) {
+        con.createStatement().use { st ->
+            for (orden in 1..20) {
+                st.executeUpdate("INSERT INTO nivel (titulo, orden) VALUES ('Nivel $orden', $orden)")
+            }
+        }
+    }
+
+    /** Devuelve el `id_nivel` del catálogo para un `orden` dado. */
+    fun idNivelPorOrden(con: Connection, orden: Int): Long {
+        con.createStatement().use { st ->
+            st.executeQuery("SELECT id_nivel FROM nivel WHERE orden = $orden").use { rs ->
+                rs.next()
+                return rs.getLong(1)
+            }
+        }
+    }
+
+    /** Siembra una fila de `progreso_usuario` (Fase 4: merge de progreso). */
+    fun insertarProgreso(con: Connection, idUsuario: Long, idNivel: Long, estadoNivel: String, intentosTotales: Int) {
+        con.createStatement().use { st ->
+            st.executeUpdate(
+                "INSERT INTO progreso_usuario (id_usuario, id_nivel, estado_nivel, intentos_totales) " +
+                    "VALUES ($idUsuario, $idNivel, '$estadoNivel', $intentosTotales)",
+            )
         }
     }
 }

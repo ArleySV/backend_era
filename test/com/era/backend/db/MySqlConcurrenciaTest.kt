@@ -5,10 +5,13 @@ import com.era.backend.config.JwtConfig
 import com.era.backend.exceptions.EmailAlreadyRegisteredException
 import com.era.backend.exceptions.InvalidCredentialsException
 import com.era.backend.models.dto.LoginRequestDto
+import com.era.backend.models.dto.ProgresoSyncItemDto
 import com.era.backend.models.dto.RegisterRequestDto
 import com.era.backend.models.entities.AcudienteRow
 import com.era.backend.repositories.AcudienteRepository
 import com.era.backend.repositories.ExposedConfiguracionRepository
+import com.era.backend.repositories.ExposedNivelRepository
+import com.era.backend.repositories.ExposedProgresoRepository
 import com.era.backend.repositories.ExposedRegistroPendienteRepository
 import com.era.backend.repositories.ExposedTransactionRunner
 import com.era.backend.repositories.ExposedUsuarioRepository
@@ -16,6 +19,7 @@ import com.era.backend.services.FakeOtpNotifier
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.LoginService
 import com.era.backend.services.OtpService
+import com.era.backend.services.ProgressSyncService
 import com.era.backend.services.RegistrationService
 import com.era.backend.services.VerificationService
 import java.sql.SQLException
@@ -40,6 +44,15 @@ import kotlin.test.assertTrue
  *    dejan exactamente un `registro_pendiente` (la constraint UNIQUE decide).
  * 3. **`SELECT ... FOR UPDATE` del login**: dos fallos simultáneos del mismo usuario quedan
  *    contabilizados en serie (`intentos_login_fallidos = 2`), sin lost-update.
+ *
+ * Fase 4 (concurrencia de negocio del Módulo G, diseño aprobado 2026-08-12):
+ * 4. **Merge-race del progreso (C2)**: dos `sync` concurrentes del mismo nivel no pierden el
+ *    `max` del merge (el `FOR UPDATE` de `ExposedProgresoRepository` serializa la fila).
+ * 5. **Doble insert (C1)**: dos `sync` concurrentes de un nivel sin fila dejan exactamente una
+ *    (carrera real al INSERT: perdedor por constraint 1062/deadlock 1213, o serializado: el
+ *    segundo relee la fila commitada y toma el path de UPDATE — nunca dos filas).
+ * 6. **Reintento idempotente (C3)**: reenviar el mismo body no duplica filas ni contadores, y
+ *    `completado_en` se fija una sola vez (§4.4).
  *
  * Reglas de seguridad (checklist aprobada por el propietario):
  * - Base de pruebas **siempre distinta de `era_db`** (guard en [MySqlTestPool]).
@@ -195,6 +208,208 @@ class MySqlConcurrenciaTest {
         }
     }
 
+    // ── Fase 4: concurrencia de negocio ─────────────────────────────────────────
+
+    @Test
+    fun `dos syncs concurrentes del mismo nivel no pierden el max del merge`() {
+        val (idUsuario, idNivel) =
+            MySqlTestPool.conBase { con ->
+                val id = MySqlTestPool.insertarUsuario(con, CORREO_MERGE, "progresomerge")
+                MySqlTestPool.insertarCatalogoNiveles(con)
+                id to MySqlTestPool.idNivelPorOrden(con, 1)
+            }
+        MySqlTestPool.conBase { con ->
+            MySqlTestPool.insertarProgreso(con, idUsuario, idNivel, "disponible", 3)
+        }
+
+        val service =
+            ProgressSyncService(
+                ExposedUsuarioRepository(),
+                ExposedNivelRepository(),
+                ExposedProgresoRepository(),
+                ExposedTransactionRunner,
+            )
+        val itemA = ProgresoSyncItemDto(orden = 1, estadoNivel = "disponible", intentosTotales = 5)
+        val itemB = ProgresoSyncItemDto(orden = 1, estadoNivel = "completado", intentosTotales = 7)
+
+        val resultados =
+            ejecutarConcurrentemente(2) { i ->
+                service.sincronizar(idUsuario, listOf(if (i == 0) itemB else itemA))
+            }
+
+        // Ambos deben terminar en éxito: con FOR UPDATE el que espera relee tras el commit del otro.
+        resultados.forEach { resultado -> resultado.getOrThrow() }
+
+        MySqlTestPool.conBase { con ->
+            assertEquals(
+                1,
+                MySqlTestPool.consultaEntero(
+                    con,
+                    "SELECT COUNT(*) FROM progreso_usuario WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ),
+                "el UNIQUE (id_usuario, id_nivel) debe dejar una sola fila",
+            )
+            con.createStatement().use { st ->
+                st.executeQuery(
+                    "SELECT estado_nivel, intentos_totales FROM progreso_usuario " +
+                        "WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ).use { rs ->
+                    rs.next()
+                    assertEquals("completado", rs.getString(1), "el estado no debe regresar bajo concurrencia")
+                    assertEquals(7, rs.getInt(2), "el max del merge no debe perderse (lost-update)")
+                }
+            }
+        }
+    }
+
+    // ── Test 4: doble insert concurrente del mismo nivel ──────────────────────────────
+
+    @Test
+    fun `dos syncs concurrentes de un nivel sin fila dejan exactamente una fila`() {
+        val (idUsuario, idNivel) =
+            MySqlTestPool.conBase { con ->
+                val id = MySqlTestPool.insertarUsuario(con, CORREO_C1, "progresoc1")
+                MySqlTestPool.insertarCatalogoNiveles(con)
+                id to MySqlTestPool.idNivelPorOrden(con, 1)
+            }
+
+        val service =
+            ProgressSyncService(
+                ExposedUsuarioRepository(),
+                ExposedNivelRepository(),
+                ExposedProgresoRepository(),
+                ExposedTransactionRunner,
+            )
+        val itemA = ProgresoSyncItemDto(orden = 1, estadoNivel = "disponible", intentosTotales = 3)
+        val itemB = ProgresoSyncItemDto(orden = 1, estadoNivel = "completado", intentosTotales = 7)
+
+        // Sin fila previa, hay DOS desenlaces válidos según el interleaving (por eso el
+        // harness tolera ambos; la invariante fuerte es "exactamente una fila consistente"):
+        // 1. Carrera real al INSERT: el UNIQUE (id_usuario, id_nivel) decide; el perdedor
+        //    recibe SQLException (constraint 1062 o deadlock 1213) y su transacción revierte.
+        // 2. Serializado: el segundo `SELECT ... FOR UPDATE` corre tras el commit del primero,
+        //    lee la fila commiteada y toma el path de UPDATE (merge hacia adelante) → 2 éxitos.
+        val resultados =
+            ejecutarConcurrentemente(2) { i ->
+                service.sincronizar(idUsuario, listOf(if (i == 0) itemA else itemB))
+            }
+
+        val exitos = resultados.count { it.isSuccess }
+        assertTrue(
+            exitos == 1 || exitos == 2,
+            "carrera real (1 éxito + 1 perdedor) o serializado (2 éxitos), fueron $exitos",
+        )
+        resultados
+            .filter { it.isFailure }
+            .forEach { perdedor ->
+                assertTrue(
+                    perdedor.exceptionOrNull() is SQLException,
+                    "el perdedor solo puede ser la constraint UNIQUE o un deadlock (SQLException), fue: " +
+                        perdedor.exceptionOrNull()?.javaClass?.name,
+                )
+            }
+
+        MySqlTestPool.conBase { con ->
+            assertEquals(
+                1,
+                MySqlTestPool.consultaEntero(
+                    con,
+                    "SELECT COUNT(*) FROM progreso_usuario WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ),
+                "el UNIQUE (id_usuario, id_nivel) debe dejar una sola fila",
+            )
+            con.createStatement().use { st ->
+                st.executeQuery(
+                    "SELECT estado_nivel, intentos_totales FROM progreso_usuario " +
+                        "WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ).use { rs ->
+                    rs.next()
+                    val intentos = rs.getInt(2)
+                    // El ganador es uno de los dos: 3 con 'disponible' o 7 con 'completado' (nunca 10).
+                    assertTrue(
+                        (intentos == 3 && rs.getString(1) == "disponible") ||
+                            (intentos == 7 && rs.getString(1) == "completado"),
+                        "la fila debe ser exactamente la del sync ganador, fue estado=${rs.getString(1)} intentos=$intentos",
+                    )
+                }
+            }
+        }
+    }
+
+    // ── Test 5: reintento secuencial idempotente (reintento de red) ───────────────────
+
+    @Test
+    fun `reintentar el mismo sync no duplica filas ni contadores`() {
+        val (idUsuario, idNivel) =
+            MySqlTestPool.conBase { con ->
+                val id = MySqlTestPool.insertarUsuario(con, CORREO_C3, "progresoc3")
+                MySqlTestPool.insertarCatalogoNiveles(con)
+                id to MySqlTestPool.idNivelPorOrden(con, 1)
+            }
+
+        val service =
+            ProgressSyncService(
+                ExposedUsuarioRepository(),
+                ExposedNivelRepository(),
+                ExposedProgresoRepository(),
+                ExposedTransactionRunner,
+            )
+        val item = ProgresoSyncItemDto(orden = 1, estadoNivel = "completado", intentosTotales = 4)
+
+        // Reintento de red: el cliente reenvía el MISMO body (CU-12, §3.2). El merge hacia
+        // adelante hace el segundo sync idempotente (max cliente/servidor, sin duplicar).
+        val primera = service.sincronizar(idUsuario, listOf(item))
+        val reintento = service.sincronizar(idUsuario, listOf(item))
+
+        assertEquals(4, primera.resumen.totalReintentos, "tras el primer sync")
+        assertEquals(1, primera.resumen.nivelesCompletados, "tras el primer sync")
+        assertEquals(
+            4,
+            reintento.resumen.totalReintentos,
+            "el reintento no puede sumar el intento del cliente otra vez (4 + 4 = 8)",
+        )
+
+        val completadoTrasPrimera =
+            MySqlTestPool.conBase { con -> leerCompletadoEn(con, idUsuario, idNivel) }
+        val completadoTrasReintento =
+            MySqlTestPool.conBase { con -> leerCompletadoEn(con, idUsuario, idNivel) }
+        assertTrue(completadoTrasPrimera != null, "completado_en debe fijarse en la transición a completado")
+        assertEquals(
+            completadoTrasPrimera,
+            completadoTrasReintento,
+            "completado_en se fija UNA sola vez y nunca se resetea (§4.4)",
+        )
+
+        MySqlTestPool.conBase { con ->
+            assertEquals(
+                1,
+                MySqlTestPool.consultaEntero(
+                    con,
+                    "SELECT COUNT(*) FROM progreso_usuario WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ),
+                "el reintento no debe crear una segunda fila",
+            )
+            assertEquals(
+                4,
+                MySqlTestPool.consultaEntero(
+                    con,
+                    "SELECT intentos_totales FROM progreso_usuario WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+                ),
+            )
+        }
+    }
+
+    /** Lee `completado_en` de la fila de progreso (nullable si nunca se completó). */
+    private fun leerCompletadoEn(con: java.sql.Connection, idUsuario: Long, idNivel: Long): String? =
+        con.createStatement().use { st ->
+            st.executeQuery(
+                "SELECT completado_en FROM progreso_usuario WHERE id_usuario = $idUsuario AND id_nivel = $idNivel",
+            ).use { rs ->
+                rs.next()
+                rs.getString(1)
+            }
+        }
+
     // ── Mecanismo de concurrencia ───────────────────────────────────────────────────
 
     /**
@@ -242,6 +457,15 @@ class MySqlConcurrenciaTest {
     companion object {
         /** Correo sintético único de la suite; nunca es un dato real (CLAUDE.md §6). */
         private const val CORREO_CONCURRENCIA = "concurrencia.race@example.com"
+
+        /** Correo sintético del merge de progreso (Fase 4). */
+        private const val CORREO_MERGE = "progreso.merge@example.com"
+
+        /** Correo sintético del doble insert concurrente (Fase 4, C1). */
+        private const val CORREO_C1 = "progreso.c1@example.com"
+
+        /** Correo sintético del reintento idempotente (Fase 4, C3). */
+        private const val CORREO_C3 = "progreso.c3@example.com"
 
         /** Config JWT de test: solo se firmaría si un login exitoso emitiera token (no ocurre aquí). */
         val JWT_CONFIG_TEST =
