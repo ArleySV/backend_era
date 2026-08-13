@@ -2,8 +2,9 @@
 <#
 scripts/integration_test.ps1 - Tests de integracion contra MySQL real (Fase 2 del plan de testing).
 
-Ejecuta SOLO la clase de integracion (com.era.backend.db.MySqlIntegrationTest) contra la base
-de pruebas era_db_test (nunca era_db). Genera un log de evidencia con timestamp en
+Ejecuta las dos clases de integracion del paquete com.era.backend.db
+(MySqlIntegrationTest + MySqlConcurrenciaTest, 6 tests) contra la base de pruebas
+era_db_test (nunca era_db). Genera un log de evidencia con timestamp en
 test-results/integration_YYYYMMDD_HHmmss.log y guarda el output crudo de la suite en
 test-results/integration_YYYYMMDD_HHmmss.raw.log (ambos ignorados por git).
 
@@ -27,7 +28,7 @@ $script:LogsDir   = Join-Path $script:Root "test-results"
 $script:Stamp     = Get-Date -Format "yyyyMMdd_HHmmss"
 $script:LogFile   = Join-Path $script:LogsDir "integration_$($script:Stamp).log"
 $script:RawFile   = Join-Path $script:LogsDir "integration_$($script:Stamp).raw.log"
-$script:TestClass = "com.era.backend.db.MySqlIntegrationTest"
+$script:TestClass = "com.era.backend.db.*"
 $script:failMsg   = @{}
 $script:rawLines  = @()
 $script:testExit  = -1

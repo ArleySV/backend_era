@@ -357,14 +357,17 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **260 tests automáticos** (`.\kotlin test`, 27 suites): service y route tests de
+- **265 tests automáticos** (`.\kotlin test`, 28 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
   de cuenta, sincronización de progreso y comentarios, **avatar personalizado (Módulo I)**,
   más manejo de errores y carga de configuración. Verificado con env vars placeholder de
-  `.env.example` (`ConfigLoadTest` las exige).
-- **Tests de integración contra MySQL real** (`MySqlIntegrationTest`, 3 tests):
-  idempotencia de migraciones Flyway, constraint UNIQUE de correo y FK
-  `ON DELETE RESTRICT` (soft delete como única vía de baja). Corren sobre la base
+  `.env.example` (`ConfigLoadTest` las exige). Conteo verificado con el runner completo
+  (`.\kotlin test`, 2026-08-12): 265/265 en verde, 28 contenedores, 0 fallidos.
+- **Tests de integración contra MySQL real** (`MySqlIntegrationTest` + `MySqlConcurrenciaTest`,
+  6 tests): idempotencia de migraciones Flyway, constraint UNIQUE de correo, FK
+  `ON DELETE RESTRICT` (soft delete como única vía de baja), rollback atómico de
+  `verify-email`, unicidad anti-TOCTOU del registro y `FOR UPDATE` del login bajo
+  concurrencia real. Corren sobre la base
   **`era_db_test`** (nunca `era_db`) vía `scripts/integration_test.ps1`, que valida el
   preflight (conexión activa = `era_db_test` + `flyway_schema_history` V1+V2+V3),
   escribe evidencia en `test-results/integration_*.log` (ignorado por git) y aborta
