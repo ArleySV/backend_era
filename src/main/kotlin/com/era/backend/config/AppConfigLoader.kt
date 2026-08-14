@@ -25,7 +25,7 @@ fun ApplicationConfig.toAppConfig(): AppConfig {
             ),
         jwt =
             JwtConfig(
-                secret = path("jwt.secret"),
+                secret = validarJwtSecret(path("jwt.secret")),
                 sessionIssuer = path("jwt.session.issuer"),
                 sessionAudience = path("jwt.session.audience"),
                 sessionExpirationMinutes = path("jwt.session.expirationMinutes").toLong(),
@@ -49,6 +49,22 @@ fun ApplicationConfig.toAppConfig(): AppConfig {
         // V11: switch explícito de entorno, NO derivado del JWT_SECRET. Default false.
         devMode = System.getenv("APP_DEV_MODE") == "true",
     )
+}
+
+/**
+ * Fail-fast del secreto JWT (Parte 1, fase final): `JWT_SECRET` no debe ser una cadena
+ * vacía. Un valor ausente ya aborta en `YamlConfigLoader` (placeholder no resoluble); este
+ * `require` cierra el hueco del valor **presente pero vacío**, que resolvería a una clave
+ * HMAC degenerada (HS256 con key vacía) y dejaría arrancar el servidor con un secreto
+ * trivialmente adivinable — violando "no hay fallback ni derivación" (modulo-b-analisis.md
+ * §4, auditoría #3). Mismo patrón de mensaje claro que [validarAvatarStorageDir].
+ */
+private fun validarJwtSecret(secret: String): String {
+    require(secret.isNotBlank()) {
+        "La variable de entorno JWT_SECRET está definida pero vacía. " +
+            "No hay fallback ni derivación (modulo-b-analisis.md §4): se debe configurar un secreto."
+    }
+    return secret
 }
 
 /**
