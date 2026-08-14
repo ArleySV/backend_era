@@ -6,6 +6,14 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 
 > Reglas de trabajo, alcance cerrado y trazabilidad de requisitos: ver [`CLAUDE.md`](CLAUDE.md).
 
+## Integrantes del proyecto
+
+| Nombre |
+|---|
+| EYBAR ARLEY SALCEDO VELASCO |
+| JUNIOR JARRINSON LAVERDE LORZA |
+| JAIRO DE JESUS FLOREZ CARVAJAL |
+
 ## Stack técnico
 
 | Componente | Elección | Por qué |
