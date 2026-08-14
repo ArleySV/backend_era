@@ -14,6 +14,73 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 | JUNIOR JARRINSON LAVERDE LORZA |
 | JAIRO DE JESUS FLOREZ CARVAJAL |
 
+## Estructura del backend
+
+```mermaid
+flowchart TB
+    subgraph Cliente["Cliente Android (MVVM + Room)"]
+        OFF["Juega y consulta FAQ offline (Room/SQLite)<br/>no recibe contenido de trivia del backend"]
+    end
+
+    subgraph Api["BACKEND_ERA — Ktor (Netty)"]
+        direction TB
+
+        subgraph Routes["Routes"]
+            AR["AuthRoutes — /api/v1/auth/*"]
+            UR["UserRoutes — /api/v1/users/me*"]
+            PR["ProgressRoutes — /api/v1/progress/sync"]
+            FR["FeedbackRoutes — /api/v1/feedback/comments"]
+        end
+
+        subgraph Controllers["Controllers"]
+            AC["AuthController"]
+            UC["UsuarioController"]
+            PC["ProgressController"]
+            FC["FeedbackController"]
+            AVC["AvatarController"]
+        end
+
+        subgraph Services["Services"]
+            SREG["RegistrationService"]
+            SOTP["OtpService + notificadores SMTP"]
+            SLOG["LoginService + JwtTokenService"]
+            SRES["PasswordResetService"]
+            SUSA["UsuarioService"]
+            SSYNC["ProgressSyncService"]
+            SCOM["ComentarioService"]
+            SAVT["AvatarService"]
+        end
+
+        subgraph Repos["Repositories (Exposed)"]
+            REP["Interfaces + impls Exposed<br/>TransactionRunner"]
+        end
+
+        subgraph Infra["Infraestructura transversal"]
+            PLUG["Plugins: AuthenticationConfig (session-jwt),<br/>StatusPages, DatabaseFactory"]
+            CFG["Config: AppConfig / AppConfigLoader (.env)"]
+            EXC["Exceptions: DomainException, ErrorDto"]
+            STO["Storage: AvatarStorage → LocalDiskAvatarStorage"]
+            UTIL["Utils: Validators, PasswordPolicy, AvatarValidador"]
+        end
+    end
+
+    DB[("MySQL era_db<br/>Flyway V1–V3, 12 tablas")]
+
+    OFF <-->|"REST JSON /api/v1/*<br/>Authorization: Bearer JWT"| Routes
+    Routes --> Controllers
+    Controllers --> Services
+    Services --> Repos
+    Repos --> DB
+    SAVT --> STO
+    PLUG -.->|"sesión obligatoria"| Routes
+    CFG -.-> PLUG
+    EXC -.-> Controllers
+```
+
+El backend es **offline-first**: solo autenticación, OTP, recuperación, cuenta, sincronización
+de progreso/comentarios y avatar (Módulos A–I). No sirve el catálogo de trivia, ni ranking en
+línea, ni FAQ remota (alcance cerrado, ver `CLAUDE.md`).
+
 ## Stack técnico
 
 | Componente | Elección | Por qué |
