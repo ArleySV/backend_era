@@ -28,8 +28,20 @@ class OtpService(
     private val secureRandom = SecureRandom()
 
     companion object {
-        /** Coste de bcrypt para el hash del código y de la contraseña (hash de un solo sentido, HU-15 CA3). */
+        /**
+         * Coste de bcrypt para el hash de los **códigos OTP** (hash de un solo sentido,
+         * HU-15 CA3). Se mantiene en 12: el OTP es un secreto de baja entropía (6 dígitos) y
+         * estos caminos están throttled (P1/P2), no son vector de DoS.
+         */
         private const val COSTE_BCRYPT = 12
+
+        /**
+         * Coste de bcrypt para las **contraseñas** de usuario (registro y reset, REQ-FUN-01/07).
+         * Bajado de 12 a 11 (2026-08-13, decisión del propietario): mitiga el DoS por
+         * saturación del pool/event-loop del login manteniendo el rango OWASP >=10-12. Los
+         * hashes legacy coste 12 siguen verificando (bcrypt embebe el coste en el propio hash).
+         */
+        const val COSTE_BCRYPT_PASSWORD = 11
 
         /** Política P1: máx. 3 intentos fallidos consecutivos; al superarlos, el código queda invalidado. */
         const val MAX_INTENTOS_FALLIDOS = 3
@@ -53,6 +65,14 @@ class OtpService(
      * se persiste ni se loguea en texto plano (CLAUDE.md §6).
      */
     fun hash(code: String): String = BCrypt.withDefaults().hashToString(COSTE_BCRYPT, code.toCharArray())
+
+    /**
+     * Hashea una **contraseña** de usuario (registro y reset) con [COSTE_BCRYPT_PASSWORD] (11),
+     * distinto del coste del OTP (12): el coste de la contraseña es el que paga cada login y
+     * por eso es el que se ajusta para mitigar el DoS. Nunca se loguea la contraseña.
+     */
+    fun hashContrasena(contrasena: String): String =
+        BCrypt.withDefaults().hashToString(COSTE_BCRYPT_PASSWORD, contrasena.toCharArray())
 
     /**
      * Delega el envío del código en [OtpNotifier] (CU-11). Sin loguear código ni correo.

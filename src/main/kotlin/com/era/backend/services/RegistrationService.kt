@@ -96,7 +96,7 @@ class RegistrationService(
                 idRegistro = 0L, // lo asigna la BD (auto-increment)
                 correo = request.correo,
                 nombreUsuario = request.nombreUsuario,
-                contrasenaHash = otpService.hash(request.contrasena),
+                contrasenaHash = otpService.hashContrasena(request.contrasena),
                 nombreMenor = request.nombreMenor,
                 fechaNacimiento = Validators.parseFechaNacimiento(request.fechaNacimiento)
                     ?: throw ValidationException("Datos de registro inválidos."),

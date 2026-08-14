@@ -21,7 +21,7 @@ import java.time.LocalDateTime
  * Seguridad:
  * - Error de credenciales **genérico** (nunca revela qué campo falló ni si la cuenta existe).
  * - Anti-enumeración por timing (B-4): con identificador inexistente se verifica la
- *   contraseña contra [HASH_DUMMY] (constante pre-calculada, coste 12) para normalizar el
+ *   contraseña contra [HASH_DUMMY] (constante pre-calculada, coste 11) para normalizar el
  *   tiempo de respuesta.
  * - Estado de soft delete evaluado **solo** tras contraseña correcta (B-5): una cuenta
  *   `eliminado` con credenciales erróneas responde el mismo 401 genérico que cualquiera.
@@ -41,12 +41,18 @@ class LoginService(
         private const val BLOQUEO_MINUTOS = 2L
 
         /**
-         * Hash bcrypt pre-calculado (coste 12, mismo que los hashes reales) para el
-         * anti-enumeración por timing (B-4, auditoría #1). Generado una sola vez; el
-         * `verify` contra esta constante cuesta lo mismo que un verify real. No desperdicia
-         * CPU por request ni usa `SecureRandom`. Nunca se loguea.
+         * Hash bcrypt pre-calculado (coste 11, alineado con [OtpService.COSTE_BCRYPT_PASSWORD])
+         * para el anti-enumeración por timing (B-4, auditoría #1). Generado una sola vez; el
+         * `verify` contra esta constante cuesta lo mismo que un verify real de una contraseña
+         * nueva (coste 11). No desperdicia CPU por request ni usa `SecureRandom`. Nunca se loguea.
+         *
+         * Bajado de 12 a 11 (2026-08-13, decisión del propietario): si el dummy quedara en 12,
+         * la variante de usernames inexistentes seguiría costando ~500 ms por request y el DoS
+         * no quedaría mitigado para la variante que nunca dispara el bloqueo B-2/B-3. Los
+         * usuarios legacy (hash coste 12) quedan ~2x más lentos que el dummy (asimetría de
+         * timing acotada y auto-curable: se homogeneiza al re-registrar/resetear o re-hashear).
          */
-        private const val HASH_DUMMY = "\$2a\$12\$t4cmK3oyWu00p9j9D54mvelSzAzFmGyotfLq5KctlS4y3WEFPZ2pi"
+        private const val HASH_DUMMY = "\$2a\$11\$EiUgkVIbOAAPuwiHhpq1AuPoFqx9MDrzJmZfefd6Ax4WK4ml9MONS"
 
         /** Mensaje genérico: no revela qué campo falló ni si la cuenta existe (REQ-FUN-02). */
         private const val MENSAJE_GENERICO = "Credenciales incorrectas."

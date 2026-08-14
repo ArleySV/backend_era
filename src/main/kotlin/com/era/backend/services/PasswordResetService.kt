@@ -74,9 +74,10 @@ class PasswordResetService(
          * verifica contra él cuando el correo no corresponde a una cuenta activa para
          * **igualar el timing** del camino real (anti-enumeración, REQ-FUN-07 CA4): un
          * atacante no puede distinguir por tiempo de cómputo si el correo existe. **Coste 12**,
-         * idéntico al de los hashes reales de OTP (`OtpService.COSTE_BCRYPT`) y al
-         * `HASH_DUMMY` del login (Módulo B): verificar contra un coste menor rompería la
-         * igualación por timing. Nunca coincide con un código real y jamás se loguea.
+         * idéntico al de los hashes reales de OTP (`OtpService.COSTE_BCRYPT`): el camino real
+         * de C-1 verifica un código OTP, no una contraseña. (El `HASH_DUMMY` del login bajó a
+         * 11 junto con el coste de contraseñas, 2026-08-13; aquí se mantiene en 12 por seguir
+         * atado al coste de los OTP). Nunca coincide con un código real y jamás se loguea.
          */
         private const val HASH_DUMMY = "\$2a\$12\$WhxXtpvSavAyxSmz99up/.P.HslxRrGt3v3tlcxxIWKs5w1cafqFq"
     }
@@ -274,7 +275,7 @@ class PasswordResetService(
     fun confirmarReseteo(request: PasswordResetConfirmRequestDto): PasswordResetResponseDto {
         val (idUsuario, jti) = validarTokenPuente(request.resetToken)
 
-        val nuevoHash = otpService.hash(request.nuevaContrasena)
+        val nuevoHash = otpService.hashContrasena(request.nuevaContrasena)
         var resultado = ResultadoConfirmacion.TOKEN_INVALIDO
 
         transactionRunner.run {
