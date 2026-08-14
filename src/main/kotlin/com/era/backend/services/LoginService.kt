@@ -94,7 +94,13 @@ class LoginService(
                 } else {
                     usuarioRepository.findByUsernameForUpdate(identificador)
                 }
-                    ?: return@run // NO_ENCONTRADO
+            // B-4: identificador inexistente → NO_ENCONTRADO (auditoría 2026-08-13). Sin esta
+            // asignación la rama del `when` quedaba inalcanzable y la igualación de timing con
+            // HASH_DUMMY nunca se ejecutaba (oráculo de enumeración por tiempo, REQ-NF-02).
+            if (usuario == null) {
+                resultado = ResultadoLogin.NO_ENCONTRADO
+                return@run
+            }
 
             val ahora = LocalDateTime.now()
 
