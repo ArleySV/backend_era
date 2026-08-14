@@ -190,6 +190,23 @@ vía `AppConfigLoader` (variable de entorno / system property). **No hay secreto
 hardcodeados, ni fallback, ni derivación.** Un único secreto compartido para sesión y reset
 token; la diferenciación vive en `audience` (ARQ §5.4 #1).
 
+**Fail-fast de `JWT_SECRET` vacío (extensión de la auditoría #3, 2026-08-13):** se agregó
+`validarJwtSecret()` en `AppConfigLoader` (require en `toAppConfig()`). Evidencia empírica y
+honestidad sobre el hallazgo: **no hubo un RED de arranque** — en Ktor 3.4.3 la variable de
+entorno presente pero **vacía es indistinguible de ausente** en la carga de `application.yaml`
+(calibración 2026-08-13 00:01 y smoke de config 00:04: ambas fallan en `YamlConfig.kt:230`
+con `ApplicationConfigurationException: Required environment variable "JWT_SECRET" not
+found`), por lo que el servidor **nunca** arrancó con un secret vacío: Ktor ya bloquea ese
+caso. El `require` es por tanto **defensa en profundidad a nivel de contrato de
+configuración**, no el fix de una vulnerabilidad de arranque demostrada: cubre el hueco de
+un valor vacío que llegara a `toAppConfig()` por una vía que **no** pase por la resolución de
+placeholders de `YamlConfig` (p.ej. un `jwt.secret: ""` literal en `application.yaml` o un
+loader futuro), que resolvería a una clave HMAC degenerada (`HMAC256("")`) y dejaría arrancar
+el servidor. Evidencia RED→GREEN a nivel unitario (mismo estándar que B-4 y el DoS):
+`ConfigMissingVarTest.JWT_SECRET vacio se rechaza` **falla** sin el `require`
+(`toAppConfig()` completa con `JwtConfig(secret=...)`, evidencia `test-results/config_red.log`)
+y **pasa** con él (3/3, `test-results/config_green.log`).
+
 **Sin datos sensibles:** el token no lleva correo, cédula, fecha de nacimiento ni datos del
 menor (mínimo privilegio, CLAUDE.md §6). Nunca se loguea el token ni su contenido.
 
@@ -219,7 +236,46 @@ que los hashes reales. *Por qué:* normaliza el tiempo de respuesta entre "usuar
 inexistente" y "contraseña incorrecta" sin generar un hash en cada request (cero CPU extra,
 cero `SecureRandom`); los tiempos son idénticos por construcción porque el coste del verify
 es el mismo. El hash dummy se genera una sola vez (Paso 1 de la implementación) y se
-embedde como constante; nunca se loguea.
+ embedde como constante; nunca se loguea.
+
+**B-4 (corrección 2026-08-13, auditoría).** La implementación original tenía la rama
+`NO_ENCONTRADO` **inalcanzable**: en el lookup del §5 faltaba `resultado = NO_ENCONTRADO`
+antes del `return@run`, así que la variable quedaba en `CREDENCIALES_INVALIDAS` y el
+`BCrypt.verify(contrasena, HASH_DUMMY)` **nunca se ejecutaba**. Efecto medido con la sonda de
+carga (login-fallido vs login-fallido-inexistente): un identificador inexistente respondía en
+~9 ms frente a ~500 ms de uno existente (**oráculo de enumeración por timing activo, ratio
+54,8×**); los tests unitarios no lo detectaban (solo verifican el mensaje genérico). Se
+restableció la asignación (`LoginService.kt`, flujo §5). Paridad medida post-fix con coste 12
+(2 corridas): ~1,1–1,4×.
+La paridad residual (no 1,0× exacto) se debe a que la rama existente verifica bcrypt DENTRO
+de la transacción (retiene conexión del pool + UPDATE) mientras la inexistente lo hace FUERA;
+decisión del propietario (2026-08-13) aceptar y documentar este residual, sin más cambios.
+
+**Coste bcrypt 12 → 11 (decisión del propietario, 2026-08-13; REQ-NF-02 / REQ-NF-01).** Las
+contraseñas nuevas (registro y reset) se hashean con `OtpService.COSTE_BCRYPT_PASSWORD = 11`;
+los hashes de los códigos OTP quedan en 12 (secreto de baja entropía en caminos throttled).
+El `HASH_DUMMY` del login se regeneró a coste 11: si quedara en 12, la variante de usernames
+inexistentes seguiría costando ~500 ms por request y el DoS no quedaría mitigado para la
+variante que **nunca** dispara el bloqueo B-2/B-3 (la que un atacante persistente preferiría).
+Justificación: coste 11 está dentro del rango OWASP (≥ 10–12) y recorta ~50 % de la CPU de
+cada verificación del login. Los hashes legacy coste 12 siguen verificando (bcrypt embebe el
+coste en el propio hash). Tradeoff asumido: un usuario legacy (coste 12) tarda ~2× más que el
+dummy (11) → asimetría de timing acotada y **auto-curable** (se homogeneiza con nuevas altas
+y resets de contraseña). Medición real (sonda de carga, 2026-08-13, 3 corridas):
+`login-fallido` c=50 p95 pasó de ~5,1 s (~10 rps) a ~2,8 s (~19 rps); `login-fallido-inexistente`
+pasó de ~92 ms (575 rps) a ~2,3–2,7 s (~15–22 rps, con una corrida outlier de 5,4 s). La
+paridad post-fix **no es un número puntual**: oscila entre **~1,1× y ~2,0× según las
+condiciones de carga del entorno de prueba, nunca >2×**, frente a los 54,8× pre-fix. Se
+reporta el rango y no un único valor (p.ej. "1,23×") porque la evidencia entre corridas no
+sostiene una cifra puntual: el p95 de la variante existente fue notablemente estable
+(2766/2762/2793 ms — acotada por el pool de conexiones, cada verify retiene su conexión
+DENTRO de la transacción), mientras que la variante inexistente concentró la varianza
+(2232/5433/2268 ms) por ser puramente CPU (bcrypt FUERA de transacción, sin backpressure de
+pool, compitiendo solo por el event loop). Hipótesis de la varianza (no resuelta): JIT warmup
+de los paths bcrypt de cada corrida, pausas de GC concentradas en la rama CPU-bound, y ruido
+del host Windows (planificador, antivirus, otros procesos) que infla la rama inexistente
+cuando aparece; el diseño de la sonda (una sola rampa 1→50 por escenario y arranque, sin
+repeticiones para promediar) amplifica el efecto de cualquier pico transitorio en esa rama.
 
 **B-5 — Estado de soft delete evaluado solo tras contraseña correcta (privacidad de
 estado).** Con credenciales erróneas, una cuenta `eliminado` responde el mismo 401 genérico

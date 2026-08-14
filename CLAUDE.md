@@ -293,7 +293,11 @@ del cliente (REQ-FUN-06).
   - **A.1 (Verificación):** `POST /api/v1/auth/verify-email` y `resend-otp` —
     conversión transaccional, P1 (3 fallos invalidan), P2 (60 s), anti-enumeración.
   - **B (Login):** `POST /api/v1/auth/login` — JWT de sesión HS256 (30 días),
-    bloqueo 2 min tras 5 fallos, error genérico anti-enumeración.
+    bloqueo 2 min tras 5 fallos, error genérico anti-enumeración; contraseñas y
+    `HASH_DUMMY` con bcrypt coste 11 (decisión propietario 2026-08-13), fix de la
+    rama `NO_ENCONTRADO` (B-4, ver `modulo-b-analisis.md`) y fail-fast de
+    `JWT_SECRET` vacío en la carga de config (auditoría #3, defensa en profundidad:
+    Ktor 3.4.3 ya trata la env var vacía como ausente en `YamlConfig`).
   - **C (Recuperación):** `password-reset/request|verify|confirm` — OTP + token
     puente JWT single-use (10 min), veto a repetir la contraseña anterior.
   - **D (Perfil):** `GET /api/v1/users/me` — mínimo privilegio (5 campos),
@@ -351,9 +355,9 @@ del cliente (REQ-FUN-06).
   bcrypt, simpleJavaMail, Flyway (core + mysql), mysql-connector-j.
 - Scripts auxiliares en `scripts/`: `dev.ps1` (recarga automática), `lint.ps1`
   (ktlint), `migrate.ps1` (Flyway), `smoke_test.ps1` (E2E register→verify),
-  `password_reset_test.ps1` (E2E recuperación de contraseña) e
+  `password_reset_test.ps1` (E2E recuperación de contraseña),
   `integration_test.ps1` (tests de integración contra `era_db_test`, con log de
-  evidencia en `test-results/`).
+  evidencia en `test-results/`) y `load_probe.ps1` (sonda de carga, ver Tests).
 
 **Tests**
 
@@ -372,6 +376,25 @@ del cliente (REQ-FUN-06).
   preflight (conexión activa = `era_db_test` + `flyway_schema_history` V1+V2+V3),
   escribe evidencia en `test-results/integration_*.log` (ignorado por git) y aborta
   con exit 1 si el preflight falla.
+- **Sonda de carga (REQ-NF-01, Parte 2 de la fase final)** (`LoadProbeTest`, paquete
+  `com.era.backend.load`): levanta el backend REAL embebido (wiring completo de
+  `Application.module()` contra `era_db_test`, pool Hikari, puerto libre) y mide escenarios
+  bajo carga creciente: `login-fallido` y `login-fallido-inexistente` (bcrypt coste 11 real,
+  rampas 1→50, para medir la paridad B-4), `login-legitimo` (baseline) y
+  `login-bloqueado` (fast-path B-2 sin bcrypt, c=20) y `GET /progress/sync` (Exposed,
+  rampa 1→50). Hard-assert REQ-NF-01 (p95 < 3000 ms) sobre `progress-sync` y
+  `login-bloqueado`; los escenarios bcrypt son informativos (si exceden el techo se reportan
+  como hallazgo). **Gate:** solo corre con `ERA_LOAD_PROBE=true` vía `scripts/load_probe.ps1`
+  (preflight `era_db_test` + V1+V2+V3, seed de 500 usuarios, evidencia en
+  `test-results/load_probe_*.log`); en el runner normal queda **skipped**. Verificado
+  2026-08-13: PASADO — `progress-sync` p95 máx ≈ 263 ms, `login-bloqueado` p95 ≈ 97 ms;
+  hallazgos documentados en `modulo-b-analisis.md` (B-4): (a) la rama `NO_ENCONTRADO` era
+  inalcanzable (oráculo de enumeración por timing, ratio 54,8×) y se corrigió el
+  `LoginService`; (b) DoS por saturación del pool con bcrypt coste 12 (~10 rps, p95 ≈ 5,1 s)
+  mitigado bajando contraseñas y `HASH_DUMMY` a coste 11 (~19 rps, p95 ≈ 2,8 s). Paridad
+  post-fix reportada como **rango ~1,1×–2,0× según condiciones de carga del entorno, nunca
+  >2×** (no como cifra puntual: el p95 de la variante existente fue estable ~2,8 s mientras
+  la inexistente concentró la varianza 2,23–5,4 s), decisión del propietario 2026-08-13.
 - **Pruebas E2E con servidor en ejecución** (`APP_DEV_MODE=true`, OTP fijo `123456`
   y SMTP No-Op): `smoke_test.ps1` (register→verify con persistencia en BD) y
   `password_reset_test.ps1` (flujo completo de recuperación).
