@@ -6,6 +6,7 @@ import io.ktor.server.auth.authenticate
 import io.ktor.server.routing.Route
 import io.ktor.server.routing.delete
 import io.ktor.server.routing.get
+import io.ktor.server.routing.patch
 import io.ktor.server.routing.put
 import io.ktor.server.routing.route
 
@@ -28,6 +29,9 @@ fun Route.userRoutes(
      * `GET /api/v1/users/me` — consulta del perfil del usuario autenticado
      * (Módulo D, REQ-FUN-06, CU-06, HU-06).
      *
+     * `PATCH /api/v1/users/me` — actualización del nombre de usuario (Módulo D, REQ-FUN-06
+     * CA5, CU-06, HU-06). Único campo editable junto al avatar; el resto se ignora.
+     *
      * `DELETE /api/v1/users/me` — eliminación de la propia cuenta por soft delete con
      * reverificación de contraseña (Módulo E, REQ-FUN-05, CU-07, HU-05).
      *
@@ -40,6 +44,7 @@ fun Route.userRoutes(
     route("/api/v1/users") {
         authenticate("session-jwt") {
             get("/me") { usuarioController.obtenerPerfil(call) }
+            patch("/me") { usuarioController.actualizarPerfil(call) }
             delete("/me") { usuarioController.eliminarCuenta(call) }
             put("/me/avatar") { avatarController.subirAvatar(call) }
             get("/me/avatar") { avatarController.obtenerAvatar(call) }

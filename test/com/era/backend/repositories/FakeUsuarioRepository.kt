@@ -34,8 +34,10 @@ class FakeUsuarioRepository : UsuarioRepository {
 
     override fun findByIdForUpdate(idUsuario: Long): UsuarioRow? = findById(idUsuario)
 
-    override fun existsByUsername(nombreUsuario: String): Boolean =
-        porCorreo.values.any { it.nombreUsuario == nombreUsuario }
+    override fun existsByUsername(nombreUsuario: String, excluirId: Long?): Boolean =
+        porCorreo.values.any {
+            it.idUsuario != excluirId && it.nombreUsuario.equals(nombreUsuario, ignoreCase = true)
+        }
 
     override fun insert(row: UsuarioRow): Long {
         val id = if (row.idUsuario == 0L) siguienteId++ else row.idUsuario
@@ -87,5 +89,14 @@ class FakeUsuarioRepository : UsuarioRepository {
     override fun actualizarAvatar(idUsuario: Long, avatar: String?) {
         val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
         porCorreo[existente.correo] = existente.copy(avatar = avatar)
+    }
+
+    /**
+     * Espejo en memoria de `actualizarNombreUsuario` (Módulo D, PATCH): muta el username de la
+     * fila para que `UsuarioServiceTest` pueda assertar el cambio y la unicidad.
+     */
+    override fun actualizarNombreUsuario(idUsuario: Long, nombreUsuario: String) {
+        val existente = porCorreo.values.firstOrNull { it.idUsuario == idUsuario } ?: return
+        porCorreo[existente.correo] = existente.copy(nombreUsuario = nombreUsuario)
     }
 }

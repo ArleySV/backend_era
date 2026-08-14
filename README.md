@@ -257,6 +257,24 @@ desincronizarse.
   tamaño, formato, MIME) → 400 `VALIDATION_ERROR` con `details`; sin token / token de
   reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. Diseño aprobado
   en `docs/modulo-i-analisis.md`.
+- **Módulo D — `PATCH /api/v1/users/me` (actualización de username, implementado):**
+  segunda parte editable de REQ-FUN-06 CA5/CU-06/HU-06. **Decisiones
+  aprobadas (2026-08-13):**
+  1. Respuesta de éxito = `200 OK` con el `UsuarioPerfilDto` actualizado (el cliente
+     muestra el username nuevo sin round-trip extra).
+  2. Alcance restringido a `nombreUsuario`; cualquier otro campo del body se **ignora**
+     (CA5). No toca `avatar` (el reset a preset queda fuera de alcance).
+  3. Unicidad → `409 CONFLICT` si el nuevo username ya existe en `usuario` (cuentas
+     activas **y** eliminadas, espejo de V1) o está **reservado en `registro_pendiente`**
+     (espejo del alta); el propio usuario se excluye del chequeo y el UNIQUE de BD queda
+     como backstop anti-carrera.
+  4. La regla V3 (contraseña ≠ username) **no se revalida** en el cambio: aplica solo en
+     alta y reset de contraseña (REQ-FUN-01/07). Consecuencia conocida y aceptada: el
+     usuario podría fijar un username igual a su contraseña; endurecerlo sería añadir una
+     revalidación solo en este endpoint.
+  Protegido por `session-jwt` (401 `UNAUTHORIZED` sin sesión/token de reseteo; 403
+  `ACCOUNT_INACTIVE` en cuenta eliminada; 400 `VALIDATION_ERROR` con `details` por forma;
+  404 defensivo).
 - **Autenticación de sesión:** proveedor JWT `session-jwt` instalado en el arranque
   (`plugins/AuthenticationConfig.kt`) con `challenge` que responde 401 `UNAUTHORIZED`
   estándar; compartido por los Módulos D/E/F/G/H/I.

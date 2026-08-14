@@ -45,9 +45,15 @@ interface UsuarioRepository {
     /**
      * Verifica si [nombreUsuario] ya está en uso. Aplica a cuentas activas y eliminadas:
      * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01).
+     *
+     * [excluirId] permite ignorar una fila concreta (el propio usuario en el `PATCH /users/me`,
+     * REQ-FUN-06 CA5): cambiarse a un username igual al propio no es un conflicto. Con `null`
+     * conserva el comportamiento del registro (Módulo A). La coincidencia es case-insensitive
+     * por la collation `utf8mb4_unicode_ci` de la columna (V1).
+     *
      * Sin loguear datos de la fila (CLAUDE.md §6).
      */
-    fun existsByUsername(nombreUsuario: String): Boolean
+    fun existsByUsername(nombreUsuario: String, excluirId: Long? = null): Boolean
 
     /**
      * Persiste un usuario. En el Módulo A.1 se usa en la conversión transaccional de
@@ -136,6 +142,15 @@ interface UsuarioRepository {
      * marcación de consumido del token, para que el cambio y el single-use sean atómicos.
      */
     fun actualizarContrasena(idUsuario: Long, contrasenaHash: String)
+
+    /**
+     * Persiste el nuevo nombre de usuario (Módulo D, `PATCH /users/me`, REQ-FUN-06 CA5). Un
+     * único UPDATE de columna, espejo de `actualizarAvatar`. Debe ejecutarse en la transacción
+     * de `UsuarioService` junto con la lectura `FOR UPDATE` y el chequeo de unicidad, para que
+     * la comprobación y la escritura sean atómicas (anti-TOCTOU; el UNIQUE de BD queda como
+     * backstop). No loguear el username de la fila (CLAUDE.md §6).
+     */
+    fun actualizarNombreUsuario(idUsuario: Long, nombreUsuario: String)
 
     /**
      * Persiste la clave de storage del avatar en `usuario.avatar` (Módulo I, REQ-FUN-06):

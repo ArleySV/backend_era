@@ -5,7 +5,9 @@ import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.models.entities.UsuarioTable
 import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.ResultRow
+import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.neq
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
@@ -92,14 +94,19 @@ class ExposedUsuarioRepository : UsuarioRepository {
 
     /**
      * Verifica si [nombreUsuario] ya está en uso. Aplica a cuentas activas y eliminadas:
-     * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01).
+     * el username de una cuenta soft-deleted permanece ocupado (V1, REQ-FUN-01). [excluirId]
+     * ignora el propio usuario (PATCH, REQ-FUN-06 CA5); la coincidencia es case-insensitive por
+     * la collation `utf8mb4_unicode_ci` (V1), igual que en `findByEmailForUpdate`.
      * Sin loguear datos de la fila (CLAUDE.md §6).
      */
-    override fun existsByUsername(nombreUsuario: String): Boolean =
-        UsuarioTable.selectAll()
-            .where { UsuarioTable.nombreUsuario eq nombreUsuario }
-            .limit(1)
-            .firstOrNull() != null
+    override fun existsByUsername(nombreUsuario: String, excluirId: Long?): Boolean {
+        val consulta =
+            UsuarioTable.selectAll().where {
+                val porNombre = UsuarioTable.nombreUsuario eq nombreUsuario
+                if (excluirId != null) porNombre and (UsuarioTable.idUsuario neq excluirId.toInt()) else porNombre
+            }
+        return consulta.limit(1).firstOrNull() != null
+    }
 
     /**
      * Persiste un usuario (A.1, conversión transaccional): solo se escribe lo que no
@@ -147,6 +154,16 @@ class ExposedUsuarioRepository : UsuarioRepository {
     override fun actualizarContrasena(idUsuario: Long, contrasenaHash: String) {
         UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
             it[UsuarioTable.contrasenaHash] = contrasenaHash
+        }
+    }
+
+    /**
+     * Módulo D (PATCH): `UPDATE usuario SET nombre_usuario = ?`. Ejecutado en la transacción
+     * de `UsuarioService` junto a la lectura `FOR UPDATE` y el chequeo de unicidad (anti-TOCTOU).
+     */
+    override fun actualizarNombreUsuario(idUsuario: Long, nombreUsuario: String) {
+        UsuarioTable.update({ UsuarioTable.idUsuario eq idUsuario.toInt() }) {
+            it[UsuarioTable.nombreUsuario] = nombreUsuario
         }
     }
 

@@ -3,10 +3,12 @@ package com.era.backend.controllers
 import com.era.backend.exceptions.FieldError
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.SesionPrincipal
+import com.era.backend.models.dto.ActualizarUsuarioRequestDto
 import com.era.backend.models.dto.EliminarCuentaRequestDto
 import com.era.backend.models.dto.MensajeResponseDto
 import com.era.backend.models.dto.UsuarioPerfilDto
 import com.era.backend.services.UsuarioService
+import com.era.backend.utils.Validators
 import io.ktor.http.HttpStatusCode
 import io.ktor.server.application.ApplicationCall
 import io.ktor.server.auth.principal
@@ -15,8 +17,8 @@ import io.ktor.server.response.respond
 
 /**
  * Handler de los endpoints de usuario autenticado (Módulos D y E:
- * `GET /api/v1/users/me` y `DELETE /api/v1/users/me`). Protegido por el proveedor
- * `session-jwt` (`plugins/AuthenticationConfig.kt`): la identidad llega como
+ * `GET /api/v1/users/me`, `PATCH /api/v1/users/me` y `DELETE /api/v1/users/me`). Protegido
+ * por el proveedor `session-jwt` (`plugins/AuthenticationConfig.kt`): la identidad llega como
  * [SesionPrincipal], nunca como parámetro del cliente.
  *
  * Valida la forma del input (primera barrera, ARQUITECTURA_BASE.md §2.2) y delega las
@@ -37,6 +39,39 @@ class UsuarioController(
         val sesion = call.principal<SesionPrincipal>()
             ?: throw IllegalStateException("Sesión no resuelta en ruta autenticada.")
         val respuesta: UsuarioPerfilDto = usuarioService.consultarPerfil(sesion.idUsuario)
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `PATCH /api/v1/users/me` (REQ-FUN-06 CA5, CU-06, HU-06).
+     *
+     * Validación de forma: `nombreUsuario` no blanco y V4 (3–60 caracteres sin espacios,
+     * regla centralizada en `Validators`) → 400 `VALIDATION_ERROR` con `details`. La
+     * unicidad (usuario activo/eliminado y pendiente) y el estado de la cuenta son reglas
+     * del service.
+     *
+     * Respuestas del service (mapeadas por StatusPages): 200 `UsuarioPerfilDto` actualizado,
+     * 403 `ACCOUNT_INACTIVE`, 404 defensivo, 409 `CONFLICT`.
+     */
+    suspend fun actualizarPerfil(call: ApplicationCall): Unit {
+        val sesion = call.principal<SesionPrincipal>()
+            ?: throw IllegalStateException("Sesión no resuelta en ruta autenticada.")
+        val request = call.receive<ActualizarUsuarioRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.nombreUsuario.isBlank()) {
+            errores += FieldError("nombreUsuario", "Es obligatorio.")
+        } else if (!Validators.isValidNombreUsuario(request.nombreUsuario)) {
+            errores += FieldError("nombreUsuario", "Debe tener entre 3 y 60 caracteres sin espacios.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de actualización inválidos.", errores)
+        }
+
+        val respuesta: UsuarioPerfilDto =
+            usuarioService.actualizarNombreUsuario(sesion.idUsuario, request)
         call.respond(HttpStatusCode.OK, respuesta)
     }
 

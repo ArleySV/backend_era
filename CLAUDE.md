@@ -300,10 +300,18 @@ del cliente (REQ-FUN-06).
     Ktor 3.4.3 ya trata la env var vacía como ausente en `YamlConfig`).
   - **C (Recuperación):** `password-reset/request|verify|confirm` — OTP + token
     puente JWT single-use (10 min), veto a repetir la contraseña anterior.
-  - **D (Perfil):** `GET /api/v1/users/me` — mínimo privilegio (5 campos),
-    protegido por el proveedor JWT `session-jwt` (`verifier` con audiencia
-    `era-app-session` + `validate` que rechaza tokens de reseteo + `challenge`
-    401 `UNAUTHORIZED`).
+  - **D (Perfil):** `GET /api/v1/users/me` — mínimo privilegio (5 campos) —
+    y **`PATCH /api/v1/users/me` (actualización de username, REQ-FUN-06 CA5,
+    decisiones D-9…D-12 de `docs/modulo-d-analisis.md`)**: respuesta 200 con el
+    `UsuarioPerfilDto` actualizado, alcance restringido a `nombreUsuario`
+    (3–60, sin espacios; claves desconocidas → 400 `INVALID_REQUEST`; no toca
+    `avatar`), unicidad 409 con mensaje idéntico al registro contra `usuario`
+    (activas **y** eliminadas) + `registro_pendiente` excluyendo al propio
+    usuario, `UNIQUE(nombre_usuario)` de BD como backstop anti-carrera; V3 no se
+    revalida (D-12). Ambos protegidos por el proveedor JWT `session-jwt`
+    (`verifier` con audiencia `era-app-session` + `validate` que rechaza tokens
+    de reseteo + `challenge` 401 `UNAUTHORIZED`); 403 `ACCOUNT_INACTIVE` en
+    cuenta eliminada.
   - **E (Eliminación):** `DELETE /api/v1/users/me` — soft delete por estado con
     reverificación bcrypt fuera de transacción y guarda anti-carrera.
   - **F (Cierre de sesión):** `POST /api/v1/auth/logout` — **stateless**
@@ -361,12 +369,14 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **265 tests automáticos** (`.\kotlin test`, 28 suites): service y route tests de
+- **283 tests automáticos** (`.\kotlin test`, 28 suites): service y route tests de
   registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
-  de cuenta, sincronización de progreso y comentarios, **avatar personalizado (Módulo I)**,
-  más manejo de errores y carga de configuración. Verificado con env vars placeholder de
+  de cuenta, **actualización de `username` (PATCH /me)**, sincronización de progreso y
+  comentarios, **avatar personalizado (Módulo I)**, más manejo de errores y carga de
+  configuración. Verificado con env vars placeholder de
   `.env.example` (`ConfigLoadTest` las exige). Conteo verificado con el runner completo
-  (`.\kotlin test`, 2026-08-12): 265/265 en verde, 28 contenedores, 0 fallidos.
+  (`.\kotlin test`, 2026-08-14): 283/283 unitarios en verde en el runner normal (los 10 de
+  integración requieren `era_db_test` con credenciales reales vía `scripts/integration_test.ps1`).
 - **Tests de integración contra MySQL real** (`MySqlIntegrationTest` + `MySqlConcurrenciaTest`,
   6 tests): idempotencia de migraciones Flyway, constraint UNIQUE de correo, FK
   `ON DELETE RESTRICT` (soft delete como única vía de baja), rollback atómico de
@@ -404,4 +414,5 @@ del cliente (REQ-FUN-06).
   `ACCOUNT_INACTIVE`).
 
 **Próximos pasos (sugeridos):**
-- Actualización de `username` (parte editable de REQ-FUN-06, junto al avatar).
+- Ninguno pendiente en el alcance cerrado: los seis grupos de funcionalidad (§2) y la
+  actualización de `username` (REQ-FUN-06 CA5) están implementados y verificados.

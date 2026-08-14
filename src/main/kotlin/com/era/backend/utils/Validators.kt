@@ -11,6 +11,10 @@ import java.time.format.DateTimeParseException
  */
 object Validators {
 
+    /** Longitudes del username (V4): misma regla en el registro (Módulo A) y en el PATCH de edición. */
+    const val USERNAME_MIN_LENGTH = 3
+    const val USERNAME_MAX_LENGTH = 60
+
     /** Formato V5: al menos un carácter local, `@`, dominio con punto y sin espacios. */
     private val EMAIL_REGEX = Regex("^[^@\\s]+@[^@\\s]+\\.[^@\\s]+$")
 
@@ -24,6 +28,15 @@ object Validators {
      */
     fun isValidEmail(value: String): Boolean =
         value.length <= 255 && EMAIL_REGEX.matches(value)
+
+    /**
+     * Valida el username (V4): entre [USERNAME_MIN_LENGTH] y [USERNAME_MAX_LENGTH] caracteres
+     * y sin espacios. Regla única compartida por el registro (Módulo A) y el `PATCH /users/me`
+     * (REQ-FUN-06 CA5, CU-06, HU-06).
+     */
+    fun isValidNombreUsuario(value: String): Boolean =
+        value.length in USERNAME_MIN_LENGTH..USERNAME_MAX_LENGTH &&
+            value.none { it.isWhitespace() }
 
     /**
      * Valida la cédula del acudiente: 6–20 caracteres alfanuméricos (V8, HU-15 CA1).

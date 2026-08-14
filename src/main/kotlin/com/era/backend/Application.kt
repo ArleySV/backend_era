@@ -121,8 +121,12 @@ fun Application.module() {
             passwordResetService,
             logoutService,
         )
-    // Módulos D y E (perfil y eliminación de cuenta): rutas protegidas por `session-jwt`.
-    val usuarioService = UsuarioService(usuarioRepository, ExposedTransactionRunner)
+    // Módulos D, D-PATCH y E (perfil, edición de username y eliminación de cuenta): rutas
+    // protegidas por `session-jwt`. `UsuarioService` inyecta `registroPendienteRepository`
+    // para el chequeo de unicidad del PATCH contra usernames reservados por registros sin
+    // verificar (espejo del alta, Módulo A).
+    val usuarioService =
+        UsuarioService(usuarioRepository, registroRepository, ExposedTransactionRunner)
     val usuarioController = UsuarioController(usuarioService)
 
     // Módulo G (sincronización de progreso, CU-12): catálogo `nivel` como ancla referencial

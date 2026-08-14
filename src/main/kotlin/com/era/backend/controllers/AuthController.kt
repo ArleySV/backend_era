@@ -81,9 +81,10 @@ class AuthController(
         if (request.correo.length > 255) errores += FieldError("correo", "Máximo 255 caracteres.")
         if (request.cedulaAcudiente.length > 20) errores += FieldError("cedulaAcudiente", "Máximo 20 caracteres.")
 
-        // Username (V4): 3–60 sin espacios.
+        // Username (V4): 3–60 sin espacios. Longitudes centralizadas en Validators (la
+        // regla de forma completa se comparte con el PATCH vía Validators.isValidNombreUsuario).
         if (request.nombreUsuario.isNotBlank()) {
-            if (request.nombreUsuario.length !in 3..60) {
+            if (request.nombreUsuario.length !in Validators.USERNAME_MIN_LENGTH..Validators.USERNAME_MAX_LENGTH) {
                 errores += FieldError("nombreUsuario", "Debe tener entre 3 y 60 caracteres.")
             }
             if (request.nombreUsuario.any { it.isWhitespace() }) {

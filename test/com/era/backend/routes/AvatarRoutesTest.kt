@@ -8,6 +8,7 @@ import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.UsuarioRow
 import com.era.backend.plugins.configureAuthentication
 import com.era.backend.plugins.configurePlugins
+import com.era.backend.repositories.FakeRegistroPendienteRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.AvatarService
@@ -61,7 +62,7 @@ class AvatarRoutesTest {
                 configurePlugins()
                 configureAuthentication(JWT_CONFIG_TEST)
                 val avatarService = AvatarService(usuarios, storage, TransactionRunner { it() })
-                val usuarioService = UsuarioService(usuarios, TransactionRunner { it() })
+                val usuarioService = UsuarioService(usuarios, FakeRegistroPendienteRepository(), TransactionRunner { it() })
                 routing {
                     userRoutes(UsuarioController(usuarioService), AvatarController(avatarService))
                 }
