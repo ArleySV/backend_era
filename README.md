@@ -127,17 +127,24 @@ línea, ni FAQ remota (alcance cerrado, ver `CLAUDE.md`).
 ### 2. Tests
 - **Hoy:** `.\kotlin test` (equivalente a `./gradlew test`). `.\kotlin check` también
   ejecuta los tests.
-- **Suite actual: 196 tests** que cubren el flujo de autenticación, verificación de correo,
-  login, recuperación de contraseña, cierre de sesión, perfil/eliminación de cuenta,
-  sincronización de progreso y comentarios (`RegistrationServiceTest`, `OtpServiceTest`,
+- **Suite actual: 294 tests** (28 suites) que cubren el flujo de autenticación, verificación
+  de correo, login, recuperación de contraseña, cierre de sesión, perfil, eliminación de
+  cuenta y **actualización de username**, sincronización de progreso, comentarios y
+  **avatar personalizado (Módulo I)** (`RegistrationServiceTest`, `OtpServiceTest`,
   `VerificationServiceTest`, `LoginServiceTest`, `PasswordResetServiceTest`,
   `LogoutServiceTest`, `UsuarioServiceTest`, `ProgressSyncServiceTest`,
-  `ComentarioServiceTest`, `AuthControllerTest`, `AuthControllerVerificationTest`,
-  `AuthControllerLoginTest`, `AuthControllerPasswordResetTest`,
-  `AuthControllerLogoutTest`, `UserRoutesTest`, `ProgressControllerTest`,
-  `FeedbackControllerTest`), la validación de forma y negocio,
-  el manejo centralizado de errores (`ErrorHandlingTest`) y la carga de configuración
-  (`ConfigLoadTest`).
+  `ComentarioServiceTest`, `AvatarServiceTest`, `AuthControllerTest`,
+  `AuthControllerVerificationTest`, `AuthControllerLoginTest`,
+  `AuthControllerPasswordResetTest`, `AuthControllerLogoutTest`, `UserRoutesTest`,
+  `ProgressControllerTest`, `FeedbackControllerTest`, `AvatarRoutesTest`), la validación de
+  forma y negocio, el manejo centralizado de errores (`ErrorHandlingTest`), la carga de
+  configuración (`ConfigLoadTest`, `ConfigMissingVarTest`), el almacenamiento de avatar
+  (`LocalDiskAvatarStorageTest`), la validación de avatar (`AvatarValidadorTest`) y la
+  **sonda de carga** REQ-NF-01 (`LoadProbeTest`, gated con `ERA_LOAD_PROBE=true`).
+  **Verificado (2026-08-14): 283/283 unitarios en verde en el runner normal**; los 10
+  restantes son de integración contra `era_db_test` (`MySqlIntegrationTest` +
+  `MySqlConcurrenciaTest` + `ConfigLoadTest`, 9 requieren credenciales MySQL reales vía
+  `scripts/integration_test.ps1` y `ConfigLoadTest` las exige en el entorno).
 - Nota: los tests auto-descubren `resources/application.yaml`; las `${VAR}` deben
   estar definidas en el entorno de la sesión.
 
@@ -214,7 +221,7 @@ de Calidad, V11).
   - `.\scripts\lint.ps1` → comprobar (`ktlint 'src/**/*.kt' 'test/**/*.kt'`).
   - `.\scripts\lint.ps1 -Format` → corregir automáticamente (`ktlint --format`).
 
-### Amper: ¿tareas personalizadas o scripts externos?
+### 5. Amper: ¿tareas personalizadas o scripts externos?
 Amper expone un grafo de tareas (`kotlin show tasks`, `kotlin task <name>`) y permite
 definir tareas/checks/commands personalizados, pero **solo escribiendo un plugin**
 (`product: jvm/amper-plugin` + `plugin.yaml`, acciones en Kotlin). Para scripts de
@@ -226,17 +233,17 @@ externos** en `scripts/` (`dev.ps1`, `migrate.ps1`, `lint.ps1`).
 > `powershell -NoProfile -ExecutionPolicy Bypass -File .\scripts\<script>.ps1` o
 > configurar `Set-ExecutionPolicy -Scope CurrentUser RemoteSigned`.
 
-> **Dependencias del catálogo:** en `module.yaml`, los alias con guiones de
-> `libs.versions.toml` se referencian con puntos (`$libs.flyway-core` → `$libs.flyway.core`,
-> `$libs.mysql-connector-j` → `$libs.mysql.connector.j`), igual que
-> `$libs.logback-classic` → `$libs.logback.classic`.
-
 ## Dependencias configuradas
 
 Las dependencias se declaran en `libs.versions.toml` (versiones) y `module.yaml`
 (módulo). El prefijo `$ktor.*` lo gestiona el catálogo de Ktor de Amper (versión
 resuelta: **3.4.3**), de modo que no se fijan versiones manuales que puedan
 desincronizarse.
+
+> **Dependencias del catálogo:** en `module.yaml`, los alias con guiones de
+> `libs.versions.toml` se referencian con puntos (`$libs.flyway-core` → `$libs.flyway.core`,
+> `$libs.mysql-connector-j` → `$libs.mysql.connector.j`), igual que
+> `$libs.logback-classic` → `$libs.logback.classic`.
 
 | Dependencia | Versión | Para qué sirve |
 |---|---|---|
@@ -316,8 +323,8 @@ desincronizarse.
   → 403 `ACCOUNT_INACTIVE`. **Regla de oro:** el contenido del comentario nunca se loguea;
   la auditoría usa solo `idComentario` e `idUsuario`. Diseño aprobado en
   `docs/modulo-h-analisis.md`.
-- **Módulo I (Avatar personalizado) implementado (wiring completo; tests automáticos
-  pendientes):** `PUT`/`GET /api/v1/users/me/avatar` operativos — subida y servido de la
+- **Módulo I (Avatar personalizado) completo:** `PUT`/`GET /api/v1/users/me/avatar`
+  operativos — subida y servido de la
   foto personalizada **post-verificación y solo con sesión autenticada** (misma barrera
   `session-jwt` de los Módulos D/E). PUT multipart (`avatar`, hasta **2 MB**) con
   **whitelist `jpeg/png/webp`** y doble validación (magic bytes + concordancia con el
@@ -331,7 +338,8 @@ desincronizarse.
   con `idUsuario`, nunca la clave ni el path. Errores de forma (sin parte, archivo ausente,
   tamaño, formato, MIME) → 400 `VALIDATION_ERROR` con `details`; sin token / token de
   reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. Diseño aprobado
-  en `docs/modulo-i-analisis.md`.
+  en `docs/modulo-i-analisis.md`; **61 tests automáticos en verde** (`AvatarValidadorTest` 14,
+  `LocalDiskAvatarStorageTest` 13, `AvatarServiceTest` 20, `AvatarRoutesTest` 14).
 - **Módulo D — `PATCH /api/v1/users/me` (actualización de username, implementado):**
   segunda parte editable de REQ-FUN-06 CA5/CU-06/HU-06. **Decisiones
   aprobadas (2026-08-13):**
@@ -361,6 +369,41 @@ desincronizarse.
   MySQL real, más los casos de error: 401 sin token, 401 `INVALID_CREDENTIALS` con
   contraseña incorrecta, 400 `VALIDATION_ERROR` con `details`, 403 `ACCOUNT_INACTIVE`
   post-eliminación y 403 al reintentar login de la cuenta eliminada.
+- **Estado general:** los seis grupos de funcionalidad del alcance cerrado (CLAUDE.md §2)
+  están **implementados y verificados** (Módulos A–I): autenticación, verificación OTP,
+  recuperación, gestión de cuenta (perfil + username + avatar + eliminación), sincronización
+  de progreso y comentarios. **294 tests** (283 unitarios en verde en el runner normal + 9 de
+  integración MySQL + 1 sonda de carga + 1 de config). **No quedan pendientes dentro del
+  alcance.**
+
+## Recomendaciones para la integración con el frontend Android
+
+- **Flujo de arranque obligatorio:** register → `verify-email` (OTP) → login. La cuenta solo
+  se activa tras `verify-email`; antes no existe token de sesión.
+- **JWT de sesión (30 días):** guardarlo con Android Keystore / `EncryptedSharedPreferences`
+  y enviarlo en `Authorization: Bearer <token>`. Nunca loguearlo ni exponerlo. Los tokens de
+  reseteo (`era-app-reset`) solo se usan en el flujo password-reset y expiran en 10 min.
+- **Errores (`ErrorDto` estándar):** mapear por el código `error`, no por el mensaje. Los 401
+  de credenciales son genéricos a propósito (anti-enumeración): la UI no debe revelar cuál
+  campo falló ni si la cuenta existe. `423 ACCOUNT_LOCKED` = 5 fallos → esperar 2 min;
+  `429 OTP_RESEND_THROTTLED` = reenvío antes de 60 s; `403 ACCOUNT_INACTIVE` = cuenta
+  eliminada (no reintentar).
+- **Offline-first (CU-12):** el cliente juega con Room/SQLite sin conexión y sube el
+  acumulado con `POST /progress/sync` (idempotente, merge hacia adelante; la respuesta ya es
+  el snapshot mergeado). La trivia, la FAQ y los avatares preset son **locales del cliente**:
+  el backend no las sirve.
+- **Avatar personalizado:** `PUT/GET /users/me/avatar` requieren sesión (no hay URL pública);
+  validar en el cliente ≤ 2 MB y solo `jpeg/png/webp` antes de subir; el GET devuelve el
+  binario con `Cache-Control: private, no-store`.
+- **Username (PATCH /me):** validar 3–60 caracteres sin espacios en el cliente y manejar
+  `409 CONFLICT` ("ya está en uso"). Solo `nombreUsuario` es editable.
+- **Logout stateless (REQ-FUN-04):** el backend no invalida el token; el cliente debe
+  descartarlo localmente y considerar limpiar su estado Room.
+- **Soft delete (REQ-FUN-05):** tras `DELETE /me`, cerrar sesión local; el correo queda
+  bloqueado para re-registro (`409 EMAIL_LOCKED`) hasta liberación administrativa.
+- **Producción:** `JWT_SECRET` robusto (sin comillas, fuera del repo), `SMTP_*` reales,
+  `AVATAR_STORAGE_DIR` en volumen persistente y TLS/HTTPS en el proxy. REQ-NF-01 impone
+  respuestas p95 < 3000 ms (verificado con `scripts/load_probe.ps1`).
 
 ## Endpoints de la API (v1)
 
@@ -372,6 +415,7 @@ desincronizarse.
 | `POST /api/v1/auth/password-reset/verify` | Paso 2: verifica el OTP (máx. 3 fallos P1, single-use del código) y, si es correcto, responde `200 OK` con un **token puente JWT de 10 min single-use** (`{ "resetToken": ... }`, C-3). Errores → 401 `OTP_INVALID_OR_EXPIRED` genérico. |
 | `POST /api/v1/auth/password-reset/confirm` | Paso 3: valida el token puente (firma/iss/aud/purpose/vigencia/single-use/doble vínculo `jti`+`sub`, C-3), exige la política compartida de contraseña (400, C-6) y el veto a repetir la anterior (409 `PASSWORD_REUSED`, REQ-FUN-07 CA5). Consume el token y responde `200 OK`; 401 `RESET_TOKEN_INVALID` genérico ante token inválido/vencido/usado. |
 | `GET /api/v1/users/me` | Consulta del perfil del usuario autenticado (Módulo D, REQ-FUN-06). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con **solo 5 campos** (`nombreMenor`, `fechaNacimiento` ISO `yyyy-MM-dd`, `correo`, `nombreUsuario`, `avatar`). Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`; fila inexistente (defensivo) → 404 `NOT_FOUND`. |
+| `PATCH /api/v1/users/me` | Actualización del username (Módulo D, REQ-FUN-06 CA5). Requiere `Authorization: Bearer <token-sesión>`; body `{ "nombreUsuario": "..." }` (**solo** ese campo; claves desconocidas → 400 `INVALID_REQUEST`; no toca `avatar`). Valida forma 3–60 sin espacios (400 `VALIDATION_ERROR` con `details`) y unicidad contra `usuario` (activas y eliminadas) + `registro_pendiente`, excluyendo al propio usuario (409 `CONFLICT`, mensaje idéntico al registro). Responde `200 OK` con el `UsuarioPerfilDto` **actualizado**. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. |
 | `DELETE /api/v1/users/me` | Eliminación de la propia cuenta (Módulo E, REQ-FUN-05). **Soft delete** por estado con reverificación de contraseña (`contrasena` en el body); responde `200 OK` con `{ "message": ... }`. Contraseña incorrecta → 401 `INVALID_CREDENTIALS`; cuenta ya eliminada → 403 `ACCOUNT_INACTIVE`; forma inválida (vacía / > 72) → 400 `VALIDATION_ERROR` con `details`. Nunca borra filas físicamente. |
 | `POST /api/v1/auth/logout` | Cierre de sesión (Módulo F, REQ-FUN-04). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "message": "Sesión cerrada." }`. **Stateless:** la invalidación del token es local del cliente (REQ-FUN-04 CA2); el backend solo confirma formalmente y registra el cierre en el log INFO con `idUsuario` (nunca el token). Sin body, sin BD, idempotente. Sin token / token de reseteo → 401 `UNAUTHORIZED`. |
 | `GET /api/v1/progress/sync` | Snapshot autoritativo del progreso del usuario (Módulo G, CU-12/REQ-FUN-10/11/12). Requiere `Authorization: Bearer <token-sesión>`; responde `200 OK` con `{ "progreso": [...], "resumen": { "nivelesCompletados", "totalNiveles": 20, "totalReintentos" } }`. Solo agregados por nivel (`orden`, `estadoNivel`, `intentosTotales`, `intentosFallidosConsecutivos`, `completadoEn`); sin filas de `intento` ni pausas. Sin token / token de reseteo → 401 `UNAUTHORIZED`; cuenta eliminada → 403 `ACCOUNT_INACTIVE`. El backend no sirve el catálogo de trivia. |

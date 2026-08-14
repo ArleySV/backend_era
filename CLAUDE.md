@@ -369,19 +369,20 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **283 tests automáticos** (`.\kotlin test`, 28 suites): service y route tests de
-  registro, verificación, login, recuperación, cierre de sesión, perfil y eliminación
-  de cuenta, **actualización de `username` (PATCH /me)**, sincronización de progreso y
-  comentarios, **avatar personalizado (Módulo I)**, más manejo de errores y carga de
-  configuración. Verificado con env vars placeholder de
-  `.env.example` (`ConfigLoadTest` las exige). Conteo verificado con el runner completo
-  (`.\kotlin test`, 2026-08-14): 283/283 unitarios en verde en el runner normal (los 10 de
-  integración requieren `era_db_test` con credenciales reales vía `scripts/integration_test.ps1`).
-- **Tests de integración contra MySQL real** (`MySqlIntegrationTest` + `MySqlConcurrenciaTest`,
-  6 tests): idempotencia de migraciones Flyway, constraint UNIQUE de correo, FK
+- **294 tests automáticos** (`.\kotlin test`, 28 suites): **283 unitarios en verde en el
+  runner normal** (service y route tests de registro, verificación, login, recuperación,
+  cierre de sesión, perfil y eliminación de cuenta, **actualización de `username`
+  (PATCH /me)**, sincronización de progreso, comentarios y **avatar personalizado (Módulo I)**,
+  más manejo de errores y carga de configuración) + **9 de integración MySQL** +
+  **1 sonda de carga (`LoadProbeTest`)** + **1 de config (`ConfigLoadTest`)**. Verificado con
+  env vars placeholder de `.env.example`. Conteo verificado con el runner completo
+  (`.\kotlin test`, 2026-08-14): 283/283 unitarios en verde en el runner normal.
+- **Tests de integración contra MySQL real** (`MySqlIntegrationTest` 3 + `MySqlConcurrenciaTest`
+  6, **9 tests**): idempotencia de migraciones Flyway, constraint UNIQUE de correo, FK
   `ON DELETE RESTRICT` (soft delete como única vía de baja), rollback atómico de
-  `verify-email`, unicidad anti-TOCTOU del registro y `FOR UPDATE` del login bajo
-  concurrencia real. Corren sobre la base
+  `verify-email`, unicidad anti-TOCTOU del registro, `FOR UPDATE` del login bajo
+  concurrencia real y el merge concurrente de `progress/sync` (fila única al insertar en
+  paralelo y `max` preservado entre reintentos). Corren sobre la base
   **`era_db_test`** (nunca `era_db`) vía `scripts/integration_test.ps1`, que valida el
   preflight (conexión activa = `era_db_test` + `flyway_schema_history` V1+V2+V3),
   escribe evidencia en `test-results/integration_*.log` (ignorado por git) y aborta
@@ -416,3 +417,33 @@ del cliente (REQ-FUN-06).
 **Próximos pasos (sugeridos):**
 - Ninguno pendiente en el alcance cerrado: los seis grupos de funcionalidad (§2) y la
   actualización de `username` (REQ-FUN-06 CA5) están implementados y verificados.
+
+### 9.1 Recomendaciones para la integración con el frontend Android
+
+- **Flujo de arranque obligatorio:** register → `verify-email` (OTP) → login. La cuenta solo
+  se activa tras `verify-email`; antes no existe token de sesión (el `session-jwt` exige
+  audiencia `era-app-session`).
+- **JWT de sesión (30 días):** guardarlo con Android Keystore / `EncryptedSharedPreferences`
+  y enviarlo en `Authorization: Bearer <token>`. Nunca loguearlo ni exponerlo. Los tokens de
+  reseteo (`era-app-reset`, 10 min) solo se usan en el flujo password-reset.
+- **Errores (`ErrorDto` estándar):** mapear por el código `error`, no por el mensaje. Los 401
+  de credenciales son genéricos a propósito (anti-enumeración): no revelar cuál campo falló ni
+  si la cuenta existe. `423 ACCOUNT_LOCKED` = 5 fallos → esperar 2 min; `429
+  OTP_RESEND_THROTTLED` = reenvío antes de 60 s; `403 ACCOUNT_INACTIVE` = cuenta eliminada
+  (no reintentar).
+- **Offline-first (CU-12):** el cliente juega con Room/SQLite sin conexión y sube el
+  acumulado con `POST /progress/sync` (idempotente, merge hacia adelante; la respuesta ya es
+  el snapshot mergeado). La trivia, la FAQ y los avatares preset son **locales del cliente**:
+  el backend no las sirve.
+- **Avatar personalizado:** `PUT/GET /users/me/avatar` requieren sesión (sin URL pública);
+  validar en el cliente ≤ 2 MB y solo `jpeg/png/webp` antes de subir; el GET devuelve el
+  binario con `Cache-Control: private, no-store`.
+- **Username (PATCH /me):** validar 3–60 caracteres sin espacios en el cliente y manejar
+  `409 CONFLICT` ("ya está en uso"). Solo `nombreUsuario` es editable.
+- **Logout stateless (REQ-FUN-04):** el backend no invalida el token; el cliente debe
+  descartarlo localmente y considerar limpiar su estado Room.
+- **Soft delete (REQ-FUN-05):** tras `DELETE /me`, cerrar sesión local; el correo queda
+  bloqueado para re-registro (`409 EMAIL_LOCKED`) hasta liberación administrativa.
+- **Producción:** `JWT_SECRET` robusto (sin comillas, fuera del repo), `SMTP_*` reales,
+  `AVATAR_STORAGE_DIR` en volumen persistente y TLS/HTTPS en el proxy. REQ-NF-01 impone
+  respuestas p95 < 3000 ms (verificado con `scripts/load_probe.ps1`).
