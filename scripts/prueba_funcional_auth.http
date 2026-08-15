@@ -1,0 +1,102 @@
+### ERA — Prueba funcional del flujo completo de autenticación y perfil
+### HTTP Client de IntelliJ (archivo .http). Requiere el backend corriendo en :8080
+### en modo dev (APP_DEV_MODE=true, OTP fijo 123456). Flujo: register -> verify -> login -> GET /me.
+### Evidencia: captura request/response reales en la pestaña "Run" del HTTP Client.
+
+@baseUrl = http://localhost:8080
+@correo = funcional.demo.20260814@example.com
+@contrasena = Abcdef1!
+
+### 1/4 — POST /api/v1/auth/register (Módulo A)
+### 201 Created. Crea registro_pendiente + acudiente + genera OTP (hasheado, 10 min).
+### En modo dev el OTP fijo es 123456 y el SMTP es No-Op.
+# @no-redirect
+POST {{baseUrl}}/api/v1/auth/register
+Content-Type: application/json
+
+{
+  "nombreMenor": "Luna Funcional",
+  "fechaNacimiento": "2015-06-15",
+  "nombreAcudiente": "Carlos Funcional",
+  "cedulaAcudiente": "1023456789",
+  "correo": "{{correo}}",
+  "nombreUsuario": "luna_funcional",
+  "avatar": "preset:1",
+  "contrasena": "{{contrasena}}",
+  "confirmarContrasena": "{{contrasena}}"
+}
+
+> {%
+    client.test("register -> 201", function () {
+        client.assert(response.status === 201, "Esperaba 201, obtuvo " + response.status);
+        client.assert(response.body.message === "Código de verificación enviado al correo.", "Mensaje inesperado");
+    });
+%}
+
+### 2/4 — POST /api/v1/auth/verify-email (Módulo A.1)
+### 200 OK. Convierte registro_pendiente -> usuario activo (transaccional). OTP 123456 en dev.
+POST {{baseUrl}}/api/v1/auth/verify-email
+Content-Type: application/json
+
+{
+  "correo": "{{correo}}",
+  "codigo": "123456"
+}
+
+> {%
+    client.test("verify-email -> 200", function () {
+        client.assert(response.status === 200, "Esperaba 200, obtuvo " + response.status);
+        client.assert(response.body.message === "Correo verificado. Cuenta activada.", "Mensaje inesperado");
+    });
+%}
+
+### 3/4 — POST /api/v1/auth/login (Módulo B)
+### 200 OK. Emite JWT de sesión (HS256, 30 días, audiencia era-app-session).
+### Guardamos el token para los endpoints protegidos siguientes.
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "usuarioOCorreo": "{{correo}}",
+  "contrasena": "{{contrasena}}"
+}
+
+> {%
+    client.test("login -> 200 con token", function () {
+        client.assert(response.status === 200, "Esperaba 200, obtuvo " + response.status);
+        client.assert(typeof response.body.token === "string" && response.body.token.length > 0, "Sin token en la respuesta");
+        client.global.set("token", response.body.token);
+    });
+%}
+
+### 4/4 — GET /api/v1/users/me (Módulo D)
+### 200 OK. Perfil con mínimo privilegio: solo 5 campos, nunca cédula/acudiente/hash.
+### Requiere Authorization: Bearer <token del login>.
+GET {{baseUrl}}/api/v1/users/me
+Authorization: Bearer {{token}}
+Accept: application/json
+
+> {%
+    client.test("GET /me -> 200 con 5 campos", function () {
+        client.assert(response.status === 200, "Esperaba 200, obtuvo " + response.status);
+        client.assert(response.body.nombreUsuario === "luna_funcional", "username inesperado");
+        client.assert(response.body.avatar === "preset:1", "avatar inesperado");
+    });
+%}
+
+### — Caso de error de control: login con contraseña incorrecta
+### 401 UNAUTHORIZED, error genérico anti-enumeración (no revela cuál campo falló).
+POST {{baseUrl}}/api/v1/auth/login
+Content-Type: application/json
+
+{
+  "usuarioOCorreo": "{{correo}}",
+  "contrasena": "ContraseñaIncorrecta1!"
+}
+
+> {%
+    client.test("login incorrecto -> 401 INVALID_CREDENTIALS genérico", function () {
+        client.assert(response.status === 401, "Esperaba 401, obtuvo " + response.status);
+        client.assert(response.body.error === "INVALID_CREDENTIALS", "Código de error inesperado");
+    });
+%}
