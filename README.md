@@ -5,6 +5,8 @@ educativa para niños de básica primaria (7 a 11 años). Este repositorio conti
 **solo el backend**; el cliente Android consume esta API vía REST.
 
 > Reglas de trabajo, alcance cerrado y trazabilidad de requisitos: ver [`CLAUDE.md`](CLAUDE.md).
+> Guía de navegación completa del repositorio (árbol, DTOs, tablas, flujo, tests): ver
+> [`docs/MAPA_DEL_REPOSITORIO.md`](docs/MAPA_DEL_REPOSITORIO.md).
 
 ## Integrantes del proyecto
 
@@ -80,6 +82,68 @@ flowchart TB
 El backend es **offline-first**: solo autenticación, OTP, recuperación, cuenta, sincronización
 de progreso/comentarios y avatar (Módulos A–I). No sirve el catálogo de trivia, ni ranking en
 línea, ni FAQ remota (alcance cerrado, ver `CLAUDE.md`).
+
+## Flujo de una petición
+
+```mermaid
+flowchart LR
+    subgraph Cliente["Cliente Android (Room + MVVM)"]
+        CLI["Petición REST + Authorization: Bearer &lt;JWT de sesión&gt;"]
+    end
+
+    subgraph Api["BACKEND_ERA — Ktor (Netty)"]
+        direction TB
+        RUT["Routes<br/>(path + verbo, sin lógica)"]
+        JWT{{"session-jwt<br/>valida token de sesión"}}
+        CTR["Controller<br/>valida la FORMA del input"]
+        SVC["Service<br/>reglas de NEGOCIO + excepciones de dominio"]
+        REP["Repository (interfaz) → impl Exposed<br/>TransactionRunner"]
+        ERR["StatusPages<br/>DomainException → ErrorDto estándar"]
+    end
+
+    DB[("MySQL era_db<br/>Flyway V1–V3, 12 tablas")]
+
+    CLI -->|"POST /api/v1/…<br/>JSON / multipart"| RUT
+    RUT --> JWT
+    JWT -- "sin token / inválido / reseteo" --> ERR
+    JWT -- "SesionPrincipal (solo idUsuario)" --> CTR
+    CTR --> SVC
+    SVC --> REP
+    REP --> DB
+    SVC -- "éxito" --> CTR
+    CTR -- "200 + DTO / binario" --> CLI
+    SVC -- "throw DomainException" --> ERR
+    ERR -- "ErrorDto 400/401/403/404/409/423/429/500" --> CLI
+```
+
+Las capas son estrictas: `routes/` → `controllers/` (forma) → `services/` (negocio) →
+`repositories/` (BD). `StatusPagesConfig` es el único traductor de excepciones de dominio a
+HTTP. El `idUsuario` se resuelve siempre de `SesionPrincipal`, nunca del body.
+
+## Documentación del proyecto
+
+Documentación oficial y análisis de decisión por módulo (la documentación vinculante antes
+de tocar cualquier código se encuentra relacionada aquí). La guía de navegación completa del repositorio está en:
+[`docs/MAPA_DEL_REPOSITORIO.md`](docs/MAPA_DEL_REPOSITORIO.md).
+
+| Archivo | Contenido |
+|---|---|
+| [`docs/MAPA_DEL_REPOSITORIO.md`](docs/MAPA_DEL_REPOSITORIO.md) | Mapa de navegación del repositorio: árbol anotado, flujo de petición, diccionario de archivos, los 23 DTOs, las 9 tablas Exposed, mapa de módulos A–I, endpoints y tests. **Recomendado para empezar.** |
+| [`docs/ARQUITECTURA_BASE.md`](docs/ARQUITECTURA_BASE.md) | Arquitectura en capas y decisiones del backend. |
+| [`docs/requisitos-funcionales.md`](docs/requisitos-funcionales.md) | REQ-FUN-01 … REQ-FUN-14. |
+| [`docs/requisitos-no-funcionales.md`](docs/requisitos-no-funcionales.md) | REQ-NF-01 … REQ-NF-06. |
+| [`docs/casos-de-uso.md`](docs/casos-de-uso.md) | CU-01 … CU-12. |
+| [`docs/historias-de-usuario.md`](docs/historias-de-usuario.md) | HU-01 … HU-15. |
+| [`docs/DICCIONARIO_DATOS.md`](docs/DICCIONARIO_DATOS.md) | Diccionario de datos del esquema. |
+| [`docs/fase2-tests-mysql-diseno.md`](docs/fase2-tests-mysql-diseno.md) | Diseño técnico de los tests de integración MySQL. |
+| [`docs/modulo-a-analisis.md`](docs/modulo-a-analisis.md) | Módulo A (Registro) y A.1 (Verificación). |
+| [`docs/modulo-b-analisis.md`](docs/modulo-b-analisis.md) | Módulo B (Login). |
+| [`docs/modulo-c-analisis.md`](docs/modulo-c-analisis.md) | Módulo C (Recuperación de contraseña). |
+| [`docs/modulo-d-analisis.md`](docs/modulo-d-analisis.md) | Módulos D/E (Perfil, Edición, Eliminación). |
+| [`docs/modulo-f-analisis.md`](docs/modulo-f-analisis.md) | Módulo F (Cierre de sesión). |
+| [`docs/modulo-g-analisis.md`](docs/modulo-g-analisis.md) | Módulo G (Sincronización de progreso). |
+| [`docs/modulo-h-analisis.md`](docs/modulo-h-analisis.md) | Módulo H (Comentarios). |
+| [`docs/modulo-i-analisis.md`](docs/modulo-i-analisis.md) | Módulo I (Avatar personalizado). |
 
 ## Stack técnico
 
