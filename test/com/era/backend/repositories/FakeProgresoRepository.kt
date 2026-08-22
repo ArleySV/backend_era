@@ -58,4 +58,37 @@ class FakeProgresoRepository : ProgresoRepository {
 
     override fun sumarIntentosTotales(idUsuario: Long): Int =
         todas(idUsuario).sumOf { it.intentosTotales }
+
+    override fun deleteByUsuario(idUsuario: Long) {
+        filas.keys.removeAll { it.first == idUsuario }
+    }
+
+    override fun ensureNivel1Disponible(idUsuario: Long, idNivel1: Long) {
+        val existente = filas[(idUsuario to idNivel1)]
+        if (existente != null) {
+            filas[(idUsuario to idNivel1)] =
+                existente.copy(
+                    estadoNivel = EstadoNivel.DISPONIBLE,
+                    intentosTotales = 0,
+                    intentosFallidosConsecutivos = 0,
+                    pausaActiva = false,
+                    pausaHasta = null,
+                    completadoEn = null,
+                )
+        } else {
+            filas[(idUsuario to idNivel1)] =
+                ProgresoUsuarioRow(
+                    idProgreso = siguienteId++,
+                    idUsuario = idUsuario,
+                    idNivel = idNivel1,
+                    estadoNivel = EstadoNivel.DISPONIBLE,
+                    intentosTotales = 0,
+                    intentosFallidosConsecutivos = 0,
+                    pausaActiva = false,
+                    pausaHasta = null,
+                    completadoEn = null,
+                    ultimaInteraccion = java.time.LocalDateTime.now(),
+                )
+        }
+    }
 }

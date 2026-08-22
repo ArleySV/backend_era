@@ -42,7 +42,7 @@ en cuenta de aquí en adelante al proponer dependencias o comandos.
 | **D** Cuenta | REQ-FUN-06, CU-06, HU-06 | `GET /api/v1/users/me`, `PATCH /api/v1/users/me` |
 | **E** Eliminación de cuenta | REQ-FUN-05, CU-07, HU-05 | `DELETE /api/v1/users/me` *(soft delete, requiere contraseña)* |
 | **F** Cierre de sesión | REQ-FUN-04, CU-05, HU-04 | `POST /api/v1/auth/logout` |
-| **G** Sincronización de progreso | REQ-FUN-12, REQ-FUN-10/11, CU-08, CU-12 | `GET /api/v1/progress/sync`, `POST /api/v1/progress/sync` |
+| **G** Sincronización de progreso | REQ-FUN-12, REQ-FUN-10/11, CU-08, CU-12 | `GET /api/v1/progress/sync`, `POST /api/v1/progress/sync`, `POST /api/v1/progress/reset` |
 | **H** Comentarios | REQ-FUN-14, CU-10, HU-14 | `POST /api/v1/feedback/comments` |
 | **I** Avatar personalizado | REQ-FUN-01 (uso diferido), REQ-FUN-06, HU-06 | `PUT /api/v1/users/me/avatar` (multipart, autenticado), `GET /api/v1/users/me/avatar` (autenticado) |
 

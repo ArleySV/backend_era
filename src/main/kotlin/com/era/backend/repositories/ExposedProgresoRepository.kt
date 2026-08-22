@@ -1,13 +1,16 @@
 package com.era.backend.repositories
 
 import com.era.backend.models.entities.EstadoNivel
+import com.era.backend.models.entities.IntentionTable
 import com.era.backend.models.entities.ProgresoUsuarioRow
 import com.era.backend.models.entities.ProgresoUsuarioTable
 import java.time.LocalDateTime
 import org.jetbrains.exposed.v1.core.ResultRow
 import org.jetbrains.exposed.v1.core.and
 import org.jetbrains.exposed.v1.core.eq
+import org.jetbrains.exposed.v1.core.inList
 import org.jetbrains.exposed.v1.core.vendors.ForUpdateOption
+import org.jetbrains.exposed.v1.jdbc.deleteWhere
 import org.jetbrains.exposed.v1.jdbc.insert
 import org.jetbrains.exposed.v1.jdbc.selectAll
 import org.jetbrains.exposed.v1.jdbc.update
@@ -74,6 +77,54 @@ class ExposedProgresoRepository : ProgresoRepository {
             .where { ProgresoUsuarioTable.idUsuario eq idUsuario.toInt() }
             .map { it[ProgresoUsuarioTable.intentosTotales] }
             .sum()
+
+    override fun deleteByUsuario(idUsuario: Long) {
+        // Paso 1: eliminar intentos del usuario (FK RESTRICT exige este orden).
+        val idsProgreso =
+            ProgresoUsuarioTable.selectAll()
+                .where { ProgresoUsuarioTable.idUsuario eq idUsuario.toInt() }
+                .map { it[ProgresoUsuarioTable.idProgreso] }
+        if (idsProgreso.isNotEmpty()) {
+            IntentionTable.deleteWhere {
+                IntentionTable.idProgreso inList idsProgreso
+            }
+        }
+        // Paso 2: eliminar todo el progreso del usuario.
+        ProgresoUsuarioTable.deleteWhere {
+            ProgresoUsuarioTable.idUsuario eq idUsuario.toInt()
+        }
+    }
+
+    override fun ensureNivel1Disponible(idUsuario: Long, idNivel1: Long) {
+        val existente =
+            ProgresoUsuarioTable.selectAll()
+                .where {
+                    (ProgresoUsuarioTable.idUsuario eq idUsuario.toInt()) and
+                        (ProgresoUsuarioTable.idNivel eq idNivel1.toInt())
+                }
+                .firstOrNull()
+        if (existente != null) {
+            ProgresoUsuarioTable.update({
+                (ProgresoUsuarioTable.idUsuario eq idUsuario.toInt()) and
+                    (ProgresoUsuarioTable.idNivel eq idNivel1.toInt())
+            }) {
+                it[ProgresoUsuarioTable.estadoNivel] = EstadoNivel.DISPONIBLE.valor
+                it[ProgresoUsuarioTable.intentosTotales] = 0
+                it[ProgresoUsuarioTable.intentosFallidosConsecutivos] = 0u
+                it[ProgresoUsuarioTable.pausaActiva] = false
+                it[ProgresoUsuarioTable.pausaHasta] = null
+                it[ProgresoUsuarioTable.completadoEn] = null
+            }
+        } else {
+            ProgresoUsuarioTable.insert {
+                it[ProgresoUsuarioTable.idUsuario] = idUsuario.toInt()
+                it[ProgresoUsuarioTable.idNivel] = idNivel1.toInt()
+                it[ProgresoUsuarioTable.estadoNivel] = EstadoNivel.DISPONIBLE.valor
+                it[ProgresoUsuarioTable.intentosTotales] = 0
+                it[ProgresoUsuarioTable.intentosFallidosConsecutivos] = 0u
+            }
+        }
+    }
 
     private fun aFila(fila: ResultRow): ProgresoUsuarioRow =
         ProgresoUsuarioRow(

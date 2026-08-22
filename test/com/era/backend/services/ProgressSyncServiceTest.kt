@@ -1,9 +1,11 @@
 package com.era.backend.services
 
 import com.era.backend.exceptions.AccountInactiveException
+import com.era.backend.exceptions.InvalidCredentialsException
 import com.era.backend.exceptions.NotFoundException
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.dto.ProgresoSyncItemDto
+import com.era.backend.models.dto.ReiniciarProgresoRequestDto
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.ProgresoUsuarioRow
@@ -11,6 +13,7 @@ import com.era.backend.repositories.FakeNivelRepository
 import com.era.backend.repositories.FakeProgresoRepository
 import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
+import at.favre.lib.crypto.bcrypt.BCrypt
 import java.time.LocalDate
 import java.time.LocalDateTime
 import kotlin.test.Test
@@ -363,10 +366,138 @@ class ProgressSyncServiceTest {
         assertNull(disponible.completadoEn, "el nivel disponible no tiene completadoEn")
     }
 
+    // ── reiniciarProgreso ────────────────────────────────────────────────────────
+
+    @Test
+    fun `reiniciarProgreso con cuenta activa limpia progreso y deja nivel 1 disponible`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        val progreso = FakeProgresoRepository()
+        progreso.seed(fila(idNivel = 1L, estado = EstadoNivel.COMPLETADO, intentosTotales = 5))
+        progreso.seed(fila(idNivel = 2L, estado = EstadoNivel.DISPONIBLE, intentosTotales = 3))
+        progreso.seed(fila(idNivel = 3L, estado = EstadoNivel.BLOQUEADO, intentosTotales = 0))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, progreso, TransactionRunner { it() })
+        val snapshot = servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("MiPass123!"))
+        // Nivel 1 debe estar disponible.
+        assertEquals(1, snapshot.progreso.size)
+        assertEquals(1, snapshot.progreso.single().orden)
+        assertEquals("disponible", snapshot.progreso.single().estadoNivel)
+        assertEquals(0, snapshot.progreso.single().intentosTotales)
+        assertNull(snapshot.progreso.single().completadoEn)
+        // Resumen: 0 completados, 0 reintentos.
+        assertEquals(0, snapshot.resumen.nivelesCompletados)
+        assertEquals(0, snapshot.resumen.totalReintentos)
+    }
+
+    @Test
+    fun `reiniciarProgreso con nivel 1 previo lo resetea a disponible`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        val progreso = FakeProgresoRepository()
+        progreso.seed(fila(idNivel = 1L, estado = EstadoNivel.COMPLETADO, intentosTotales = 10))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, progreso, TransactionRunner { it() })
+        servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("MiPass123!"))
+        val nivel1 = progreso.todas(1L).singleOrNull { it.idNivel == 1L }
+        assertNotNull(nivel1, "nivel 1 debe existir tras el reset")
+        assertEquals("disponible", nivel1.estadoNivel.valor)
+        assertEquals(0, nivel1.intentosTotales)
+        assertNull(nivel1.completadoEn)
+    }
+
+    @Test
+    fun `reiniciarProgreso con nivel 1 sin fila lo crea como disponible`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        val progreso = FakeProgresoRepository()
+        progreso.seed(fila(idNivel = 2L, estado = EstadoNivel.DISPONIBLE, intentosTotales = 3))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, progreso, TransactionRunner { it() })
+        servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("MiPass123!"))
+        val nivel1 = progreso.todas(1L).singleOrNull { it.idNivel == 1L }
+        assertNotNull(nivel1, "nivel 1 debe crearse como disponible")
+        assertEquals("disponible", nivel1.estadoNivel.valor)
+    }
+
+    @Test
+    fun `reiniciarProgreso con cuenta eliminada lanza AccountInactiveException`() {
+        val ctx =
+            servicioCon(
+                seedUsuario = { it.seed(usuario(estado = EstadoUsuario.ELIMINADO)) },
+                seedNiveles = { it.seedCatalogoCompleto() },
+            )
+        assertFailsWith<AccountInactiveException> {
+            ctx.servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("cualquiera"))
+        }
+    }
+
+    @Test
+    fun `reiniciarProgreso con contraseña incorrecta lanza InvalidCredentialsException`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, FakeProgresoRepository(), TransactionRunner { it() })
+        assertFailsWith<InvalidCredentialsException> {
+            servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("WrongPass99!"))
+        }
+    }
+
+    @Test
+    fun `reiniciarProgreso con usuario inexistente lanza NotFoundException`() {
+        val ctx =
+            servicioCon(
+                seedUsuario = { seedActivo(it) },
+                seedNiveles = { it.seedCatalogoCompleto() },
+            )
+        assertFailsWith<NotFoundException> {
+            ctx.servicio.reiniciarProgreso(99L, ReiniciarProgresoRequestDto("cualquiera"))
+        }
+    }
+
+    @Test
+    fun `reiniciarProgreso corre en 2 transacciones lock y reset`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        var llamadas = 0
+        val runner = TransactionRunner { llamadas++; it() }
+        val progreso = FakeProgresoRepository()
+        progreso.seed(fila(idNivel = 1L, estado = EstadoNivel.COMPLETADO, intentosTotales = 5))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, progreso, runner)
+        servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("MiPass123!"))
+        assertEquals(2, llamadas, "debe usar 2 transacciones: lock + reset")
+    }
+
+    @Test
+    fun `tras reiniciarProgreso obtenerSnapshot muestra nivel 1 disponible`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        val usuarios = FakeUsuarioRepository()
+        usuarios.seed(usuario(contrasenaHash = hash))
+        val progreso = FakeProgresoRepository()
+        progreso.seed(fila(idNivel = 1L, estado = EstadoNivel.COMPLETADO, intentosTotales = 5))
+        progreso.seed(fila(idNivel = 2L, estado = EstadoNivel.DISPONIBLE, intentosTotales = 3))
+        val niveles = FakeNivelRepository().also { it.seedCatalogoCompleto() }
+        val servicio = ProgressSyncService(usuarios, niveles, progreso, TransactionRunner { it() })
+        servicio.reiniciarProgreso(1L, ReiniciarProgresoRequestDto("MiPass123!"))
+        val snapshot = servicio.obtenerSnapshot(1L)
+        assertEquals(1, snapshot.progreso.size)
+        assertEquals(1, snapshot.progreso.single().orden)
+        assertEquals("disponible", snapshot.progreso.single().estadoNivel)
+        assertEquals(0, snapshot.resumen.nivelesCompletados)
+        assertEquals(0, snapshot.resumen.totalReintentos)
+    }
+
     companion object {
         private fun usuario(
             id: Long = 1L,
             estado: EstadoUsuario = EstadoUsuario.ACTIVO,
+            contrasenaHash: String = "hash-de-prueba",
         ): com.era.backend.models.entities.UsuarioRow =
             com.era.backend.models.entities.UsuarioRow(
                 idUsuario = id,
@@ -374,7 +505,7 @@ class ProgressSyncServiceTest {
                 fechaNacimiento = LocalDate.of(2017, 4, 10),
                 correo = "laura.perez@example.com",
                 nombreUsuario = "mariacamila",
-                contrasenaHash = "hash-de-prueba",
+                contrasenaHash = contrasenaHash,
                 avatar = null,
                 intentosLoginFallidos = 0,
                 bloqueadoHasta = null,

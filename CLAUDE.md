@@ -271,9 +271,10 @@ del cliente (REQ-FUN-06).
   - `config/` (`AppConfig`, `AppConfigLoader` — con `StorageConfig` y fail-fast
     de `AVATAR_STORAGE_DIR`), `database/` (`DatabaseMigrator`, `MigrateRunner`),
     `plugins/` (`AuthenticationConfig`, `DatabaseFactory`, `StatusPagesConfig`).
-  - `models/` (`SesionPrincipal`), `models/dto/` (15 DTOs: register, verify,
-    resend, login, password-reset ×3, perfil, eliminar, mensaje, comentario, …),
-    `models/entities/` (tablas Exposed, incluida `ComentarioTable`).
+  - `models/` (`SesionPrincipal`), `models/dto/` (16 DTOs: register, verify,
+    resend, login, password-reset ×3, perfil, eliminar, mensaje, comentario,
+    reiniciar-progreso, …),
+    `models/entities/` (tablas Exposed, incluidas `ComentarioTable` e `IntentionTable`).
   - `exceptions/` (`CoreExceptions`, `DomainException`, `ErrorDto`,
     `ModuleExtensions`), `repositories/` (interfaces + impls Exposed, incluidos
     `ComentarioRepository`/`ExposedComentarioRepository`, + `TransactionRunner`),
@@ -328,9 +329,13 @@ del cliente (REQ-FUN-06).
     `orden` no existe en `nivel`), `totalReintentos = SUM(intentos_totales)` y
     `nivelesCompletados` calculados **en el servidor**, `totalNiveles = 20`
     constante. POST responde el snapshot mergeado y persistido (un round-trip).
-     403 `ACCOUNT_INACTIVE` en GET y POST; 401 `UNAUTHORIZED` sin sesión. El backend
-     **no sirve el catálogo de trivia** (§2). Diseño aprobado en
-     `docs/modulo-g-analisis.md`.
+    **`POST /api/v1/progress/reset`** — reinicio completo de progreso con
+    reverificación de contraseña (destructivo, misma anti-colución D-3 del Módulo E):
+    `FOR UPDATE` → bcrypt fuera de transacción → DELETE `intento`+`progreso_usuario`
+    → INSERT nivel 1 `disponible` → snapshot post-reset (2 transacciones, respuesta
+    `ProgresoSyncResponseDto`). 403 `ACCOUNT_INACTIVE` en GET/POST/reset; 401
+    `UNAUTHORIZED` sin sesión. El backend **no sirve el catálogo de trivia** (§2).
+    Diseño aprobado en `docs/modulo-g-analisis.md`.
   - **H (Comentarios):** `POST /api/v1/feedback/comments` — CU-10/REQ-FUN-14 con
     **solo escritura** (`contenido`, máx. 2000 caracteres). El `id_usuario` se
     resuelve **siempre** del `SesionPrincipal` (nunca del body; claves desconocidas
@@ -369,14 +374,14 @@ del cliente (REQ-FUN-06).
 
 **Tests**
 
-- **294 tests automáticos** (`.\kotlin test`, 28 suites): **283 unitarios en verde en el
+- **308 tests automáticos** (`.\kotlin test`, 28 suites): **297 unitarios en verde en el
   runner normal** (service y route tests de registro, verificación, login, recuperación,
   cierre de sesión, perfil y eliminación de cuenta, **actualización de `username`
   (PATCH /me)**, sincronización de progreso, comentarios y **avatar personalizado (Módulo I)**,
   más manejo de errores y carga de configuración) + **9 de integración MySQL** +
   **1 sonda de carga (`LoadProbeTest`)** + **1 de config (`ConfigLoadTest`)**. Verificado con
   env vars placeholder de `.env.example`. Conteo verificado con el runner completo
-  (`.\kotlin test`, 2026-08-14): 283/283 unitarios en verde en el runner normal.
+  (`.\kotlin test`, 2026-08-18): 297/297 unitarios en verde en el runner normal.
 - **Tests de integración contra MySQL real** (`MySqlIntegrationTest` 3 + `MySqlConcurrenciaTest`
   6, **9 tests**): idempotencia de migraciones Flyway, constraint UNIQUE de correo, FK
   `ON DELETE RESTRICT` (soft delete como única vía de baja), rollback atómico de

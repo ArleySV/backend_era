@@ -1,12 +1,15 @@
 package com.era.backend.services
 
+import at.favre.lib.crypto.bcrypt.BCrypt
 import com.era.backend.exceptions.AccountInactiveException
 import com.era.backend.exceptions.FieldError
+import com.era.backend.exceptions.InvalidCredentialsException
 import com.era.backend.exceptions.NotFoundException
 import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.dto.NivelProgresoDto
 import com.era.backend.models.dto.ProgresoSyncItemDto
 import com.era.backend.models.dto.ProgresoSyncResponseDto
+import com.era.backend.models.dto.ReiniciarProgresoRequestDto
 import com.era.backend.models.dto.ResumenProgresoDto
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.models.entities.EstadoUsuario
@@ -54,6 +57,9 @@ class ProgressSyncService(
 
         /** Mensaje de nivel inexistente en el catálogo (G §5.2). */
         private const val MENSAJE_NIVEL_INEXISTENTE = "Nivel inexistente en el catálogo."
+
+        /** Mensaje genérico de credenciales (reinicio): mismo texto que el login (Módulo B). */
+        private const val MENSAJE_CREDENCIALES = "Credenciales incorrectas."
     }
 
     /**
@@ -118,6 +124,58 @@ class ProgressSyncService(
                 }
             }
 
+            snapshot = construirSnapshot(idUsuario)
+        }
+        return snapshot ?: throw IllegalStateException("Snapshot no generado en transacción.")
+    }
+
+    /**
+     * Reinicia todo el progreso del usuario autenticado (POST /reset).
+     *
+     * Patrón anti-carrera idéntico a `UsuarioService.eliminarCuenta` (Módulo E, D-3):
+     * 1. Lectura con FOR UPDATE → verificar cuenta ACTIVA.
+     * 2. BCrypt verify FUERA de la transacción (no retener lock durante bcrypt).
+     * 3. Segunda transacción: DELETE intento → DELETE progreso → INSERT nivel 1.
+     *
+     * Respuestas: 200 con `ProgresoSyncResponseDto` post-reset · 401
+     * `INVALID_CREDENTIALS` · 403 `ACCOUNT_INACTIVE` · 404 defensivo.
+     */
+    fun reiniciarProgreso(
+        idUsuario: Long,
+        request: ReiniciarProgresoRequestDto,
+    ): ProgresoSyncResponseDto {
+        var usuarioRow: com.era.backend.models.entities.UsuarioRow? = null
+        transactionRunner.run {
+            verificarCuentaActiva(idUsuario)
+            usuarioRow = usuarioRepository.findByIdForUpdate(idUsuario)
+                ?: throw NotFoundException("Usuario no encontrado.")
+        }
+
+        val usuario = usuarioRow
+            ?: throw NotFoundException("Usuario no encontrado.")
+        if (usuario.estado != EstadoUsuario.ACTIVO) {
+            throw AccountInactiveException(MENSAJE_CUENTA_INACTIVA)
+        }
+
+        // D-3: verificación bcrypt FUERA de la transacción (no retener lock).
+        val credencialValida =
+            BCrypt.verifyer()
+                .verify(request.contrasena.toCharArray(), usuario.contrasenaHash)
+                .verified
+        if (!credencialValida) {
+            throw InvalidCredentialsException(MENSAJE_CREDENCIALES)
+        }
+
+        var snapshot: ProgresoSyncResponseDto? = null
+        transactionRunner.run {
+            // Segunda transacción con guarda anti-carrera.
+            val actual = usuarioRepository.findByIdForUpdate(idUsuario)
+            if (actual != null && actual.estado == EstadoUsuario.ACTIVO) {
+                val idNivel1 = nivelRepository.findByIdOrden(1)
+                    ?: throw IllegalStateException("Nivel 1 no existe en catálogo.")
+                progresoRepository.deleteByUsuario(idUsuario)
+                progresoRepository.ensureNivel1Disponible(idUsuario, idNivel1)
+            }
             snapshot = construirSnapshot(idUsuario)
         }
         return snapshot ?: throw IllegalStateException("Snapshot no generado en transacción.")

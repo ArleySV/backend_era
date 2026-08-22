@@ -5,6 +5,7 @@ import com.era.backend.exceptions.ValidationException
 import com.era.backend.models.SesionPrincipal
 import com.era.backend.models.dto.ProgresoSyncRequestDto
 import com.era.backend.models.dto.ProgresoSyncResponseDto
+import com.era.backend.models.dto.ReiniciarProgresoRequestDto
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.services.ProgressSyncService
 import io.ktor.http.HttpStatusCode
@@ -97,6 +98,39 @@ class ProgressController(
 
         val respuesta: ProgresoSyncResponseDto =
             progressSyncService.sincronizar(sesion.idUsuario, itemsValidos)
+        call.respond(HttpStatusCode.OK, respuesta)
+    }
+
+    /**
+     * Endpoint `POST /api/v1/progress/reset` (reinicio de progreso).
+     *
+     * Validaciones de forma: `contrasena` no blanco y ≤ 72 (tope técnico de bcrypt, espejo
+     * de `DELETE /me` del Módulo E). La verificación de contraseña (anti-carrera, patrón D-3),
+     * el estado de la cuenta y el reset atómico son reglas del service.
+     *
+     * Respuestas (mapeadas por StatusPages): 200 con `ProgresoSyncResponseDto` post-reset
+     * (nivel 1 disponible, 0 completados, 0 reintentos) · 400 `VALIDATION_ERROR` · 401
+     * `INVALID_CREDENTIALS` · 401 `UNAUTHORIZED` · 403 `ACCOUNT_INACTIVE`.
+     */
+    suspend fun reiniciarProgreso(call: ApplicationCall): Unit {
+        val sesion = call.principal<SesionPrincipal>()
+            ?: throw IllegalStateException("Sesión no resuelta en ruta autenticada.")
+        val request = call.receive<ReiniciarProgresoRequestDto>()
+
+        val errores = mutableListOf<FieldError>()
+
+        if (request.contrasena.isBlank()) {
+            errores += FieldError("contrasena", "Es obligatoria.")
+        } else if (request.contrasena.length > 72) {
+            errores += FieldError("contrasena", "Máximo 72 caracteres.")
+        }
+
+        if (errores.isNotEmpty()) {
+            throw ValidationException("Datos de reinicio inválidos.", errores)
+        }
+
+        val respuesta: ProgresoSyncResponseDto =
+            progressSyncService.reiniciarProgreso(sesion.idUsuario, request)
         call.respond(HttpStatusCode.OK, respuesta)
     }
 }

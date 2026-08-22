@@ -6,6 +6,7 @@ import com.era.backend.controllers.ProgressController
 import com.era.backend.models.dto.ProgresoSyncItemDto
 import com.era.backend.models.dto.ProgresoSyncRequestDto
 import com.era.backend.models.dto.ProgresoSyncResponseDto
+import com.era.backend.models.dto.ReiniciarProgresoRequestDto
 import com.era.backend.models.entities.EstadoNivel
 import com.era.backend.models.entities.EstadoUsuario
 import com.era.backend.models.entities.ProgresoUsuarioRow
@@ -18,6 +19,7 @@ import com.era.backend.repositories.FakeUsuarioRepository
 import com.era.backend.repositories.TransactionRunner
 import com.era.backend.services.JwtTokenService
 import com.era.backend.services.ProgressSyncService
+import at.favre.lib.crypto.bcrypt.BCrypt
 import io.ktor.client.request.get
 import io.ktor.client.request.header
 import io.ktor.client.request.post
@@ -476,6 +478,120 @@ class ProgressControllerTest {
                 }
             assertEquals(HttpStatusCode.Forbidden, response.status)
             assertTrue(response.bodyAsText().contains("\"error\":\"ACCOUNT_INACTIVE\""))
+        }
+    }
+
+    // ── POST /api/v1/progress/reset ──────────────────────────────────────────────
+
+    @Test
+    fun `POST reset sin token responde 401 UNAUTHORIZED`() {
+        app({}) {
+            val response =
+                post("/api/v1/progress/reset") {
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(ReiniciarProgresoRequestDto("MiPass123!")))
+                }
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"UNAUTHORIZED\""))
+        }
+    }
+
+    @Test
+    fun `POST reset con token de reseteo responde 401 UNAUTHORIZED`() {
+        app({ it.seed(usuarioActivo()) }) {
+            val resetToken = JwtTokenService(JWT_CONFIG_TEST).emitirReseteo(1L, jti = "jti-reset")
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $resetToken")
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(ReiniciarProgresoRequestDto("MiPass123!")))
+                }
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"UNAUTHORIZED\""))
+        }
+    }
+
+    @Test
+    fun `POST reset con contraseña correcta responde 200`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        app({ it.seed(usuarioActivo().copy(contrasenaHash = hash)) }) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(ReiniciarProgresoRequestDto("MiPass123!")))
+                }
+            assertEquals(HttpStatusCode.OK, response.status)
+            val snapshot = Json.decodeFromString<ProgresoSyncResponseDto>(response.bodyAsText())
+            assertEquals(1, snapshot.progreso.size)
+            assertEquals(1, snapshot.progreso.single().orden)
+            assertEquals("disponible", snapshot.progreso.single().estadoNivel)
+            assertEquals(0, snapshot.resumen.nivelesCompletados)
+            assertEquals(0, snapshot.resumen.totalReintentos)
+        }
+    }
+
+    @Test
+    fun `POST reset sin campo contrasena responde 400 VALIDATION_ERROR`() {
+        app({ it.seed(usuarioActivo()) }) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody("{}")
+                }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"VALIDATION_ERROR\""))
+            assertTrue(response.bodyAsText().contains("\"field\":\"contrasena\""))
+        }
+    }
+
+    @Test
+    fun `POST reset con contrasena vacia responde 400 VALIDATION_ERROR`() {
+        app({ it.seed(usuarioActivo()) }) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody("""{"contrasena":"   "}""")
+                }
+            assertEquals(HttpStatusCode.BadRequest, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"VALIDATION_ERROR\""))
+        }
+    }
+
+    @Test
+    fun `POST reset con cuenta eliminada responde 403 ACCOUNT_INACTIVE`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        app({ it.seed(usuarioActivo().copy(estado = EstadoUsuario.ELIMINADO, contrasenaHash = hash)) }) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(ReiniciarProgresoRequestDto("MiPass123!")))
+                }
+            assertEquals(HttpStatusCode.Forbidden, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"ACCOUNT_INACTIVE\""))
+        }
+    }
+
+    @Test
+    fun `POST reset con contraseña incorrecta responde 401 INVALID_CREDENTIALS`() {
+        val hash = BCrypt.withDefaults().hashToString(11, "MiPass123!".toCharArray())
+        app({ it.seed(usuarioActivo().copy(contrasenaHash = hash)) }) {
+            val sesionToken = JwtTokenService(JWT_CONFIG_TEST).emitir(1L)
+            val response =
+                post("/api/v1/progress/reset") {
+                    header(HttpHeaders.Authorization, "Bearer $sesionToken")
+                    contentType(ContentType.Application.Json)
+                    setBody(Json.encodeToString(ReiniciarProgresoRequestDto("WrongPass99!")))
+                }
+            assertEquals(HttpStatusCode.Unauthorized, response.status)
+            assertTrue(response.bodyAsText().contains("\"error\":\"INVALID_CREDENTIALS\""))
         }
     }
 

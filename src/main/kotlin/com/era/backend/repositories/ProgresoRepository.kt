@@ -57,4 +57,27 @@ interface ProgresoRepository {
      * jamás se calcula en el cliente, siempre es agregado del servidor.
      */
     fun sumarIntentosTotales(idUsuario: Long): Int
+
+    /**
+     * Elimina todas las filas de `intento` y `progreso_usuario` del usuario indicado.
+     * Se usa en el reinicio de progreso (`POST /api/v1/progress/reset`): primero se
+     * borran los intentos (FK `RESTRICT` de `intento` hacia `progreso_usuario`, V1) y
+     * luego todo el progreso del usuario.
+     *
+     * Debe ejecutarse dentro de una transacción que garantice atomicidad con la
+     * inserción posterior del nivel 1 como `disponible`.
+     */
+    fun deleteByUsuario(idUsuario: Long)
+
+    /**
+     * Asegura que el nivel 1 (orden=1) esté en estado `disponible` para el usuario.
+     * Si el usuario ya tiene una fila para ese nivel, la actualiza a `disponible` con
+     * contadores en 0. Si no existe, inserta una fila nueva.
+     *
+     * Se usa en el reinicio de progreso: tras borrar todo el progreso, el nivel 1
+     * debe quedar como punto de partida.
+     *
+     * Debe ejecutarse dentro de la misma transacción que [deleteByUsuario].
+     */
+    fun ensureNivel1Disponible(idUsuario: Long, idNivel1: Long)
 }

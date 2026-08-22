@@ -419,3 +419,84 @@ CLAUDE.md). No se agrega ninguna tabla ni columna.
 **Verificación transversal:** validación de `orden` contra `nivel` (§5.2), atomicidad del
 POST (§6), `totalReintentos` como suma del servidor (§7), 401/403 (§8); cero logs de datos
 personales (CLAUDE.md §6); sin migración ni dependencias nuevas.
+
+---
+
+## 14. Contrato de `POST /api/v1/progress/reset` — Reinicio de progreso
+
+**Requisito:** funcionalidad solicitada por el propietario del proyecto (fuera de
+requisitos formales) para permitir al menor de edad borrar todo su progreso y empezar
+desde nivel 1. Opera sobre las mismas tablas que el sync (§5.1) pero destruye datos.
+
+**Endpoint:** `POST /api/v1/progress/reset`
+
+**Protección:** `session-jwt` (misma barrera que GET/POST sync).
+
+### 14.1 Contrato HTTP
+
+| Campo | Valor |
+|---|---|
+| Método | `POST` |
+| Ruta | `/api/v1/progress/reset` |
+| Content-Type | `application/json` |
+| Body | `{ "contrasena": "<contraseña_actual>" }` |
+| Auth | `Authorization: Bearer <session-jwt>` |
+
+### 14.2 Respuestas
+
+| Código | Error | Condición |
+|---|---|---|
+| `200 OK` | — | Reinicio exitoso. Body: `ProgresoSyncResponseDto` (snapshot post-reset, nivel 1 `disponible`). |
+| `400 BAD_REQUEST` | `VALIDATION_ERROR` | `contrasena` ausente, vacía o en blanco (detalles: `"contrasena"`). |
+| `401 UNAUTHORIZED` | `UNAUTHORIZED` | Sin token, token de reseteo, o token malformado. |
+| `401 UNAUTHORIZED` | `INVALID_CREDENTIALS` | Contraseña incorrecta (anti-enumeración: mismo mensaje que login). |
+| `403 FORBIDDEN` | `ACCOUNT_INACTIVE` | Cuenta eliminada / soft-deleted. |
+
+### 14.3 Anti-colución (patrón D-3)
+
+La verificación de contraseña sigue exactamente el patrón del Módulo E
+(`DELETE /me`, `docs/modulo-d-analisis.md` D-3):
+
+1. **Transacción 1:** `SELECT ... FOR UPDATE` del usuario → confirmar `estado == "activo"`.
+2. **Fuera de transacción:** `BCrypt.verify(contrasena, usuario.contrasenaHash)`.
+   Si falla → `InvalidCredentialsException` → 401 `INVALID_CREDENTIALS`. No se
+   loguea la contraseña ni el resultado (CLAUDE.md §6).
+3. **Transacción 2:** `DELETE intento WHERE id_usuario = :id` + `DELETE progreso_usuario WHERE id_usuario = :id` + `INSERT` nivel 1 como `disponible`.
+4. Se construye y devuelve el snapshot post-reset.
+
+**Por qué:** la verificación bcrypt puede tardar 200+ ms; si hiciera dentro de la
+misma transacción que el `FOR UPDATE`, el lock se mantendría durante el bcrypt,
+creando una ventana de bloqueo innecesaria y aumentando la probabilidad de deadlock.
+
+### 14.4 Respuesta `ProgresoSyncResponseDto`
+
+La respuesta es idéntica a la del GET/POST sync (§7):
+
+```json
+{
+  "totalReintentos": 0,
+  "nivelesCompletados": 0,
+  "totalNiveles": 20,
+  "items": [
+    { "orden": 1, "estado": "disponible", "intentosTotales": 0, "intentosFallidosConsecutivos": 0, "completadoEn": null },
+    { "orden": 2, "estado": "bloqueado", "intentosTotales": 0, "intentosFallidosConsecutivos": 0, "completadoEn": null },
+    ...
+  ]
+}
+```
+
+### 14.5 Auditoría
+
+El log INFO registra únicamente `idUsuario` y la acción de reinicio. **Nunca** se
+loguea la contraseña, el hash ni los niveles previos.
+
+### 14.6 Pruebas
+
+| Suite | Tests | Tipo |
+|---|---|---|
+| `ProgressSyncServiceTest` | 7 tests de reinicio | Unitario (FakeProgresoRepository) |
+| `ProgressControllerTest` | 7 tests HTTP de reset | Route (testApplication) |
+
+Cubren: happy path, nivel 1 previo → resetea, nivel 1 inexistente → crea, cuenta
+eliminada → 403, contraseña incorrecta → 401, 2 transacciones (anti-colución), snapshot
+post-reset, body sin campo, body vacío, token de reseteo → 401, sin token → 401.
