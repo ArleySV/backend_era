@@ -4,6 +4,8 @@ Backend REST de **ERA (Educación, Repaso y Aprendizaje)**, app Android nativa d
 educativa para niños de básica primaria (7 a 11 años). Este repositorio contiene
 **solo el backend**; el cliente Android consume esta API vía REST.
 
+> **Regla de registro:** El registro permite usuarios de 7 años en adelante, sin límite máximo de edad. Esto modifica únicamente la edad permitida para el registro y NO cambia el público objetivo pedagógico de la aplicación (7–11 años).
+
 > Reglas de trabajo, alcance cerrado y trazabilidad de requisitos: ver [`CLAUDE.md`](CLAUDE.md).
 > Guía de navegación completa del repositorio (árbol, DTOs, tablas, flujo, tests): ver
 > [`docs/MAPA_DEL_REPOSITORIO.md`](docs/MAPA_DEL_REPOSITORIO.md).

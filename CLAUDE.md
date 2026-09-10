@@ -13,6 +13,8 @@ educativa para niños de básica primaria (**7 a 11 años**), compatible desde
 **Android 8.0**. Su objetivo es redirigir el tiempo de ocio digital pasivo hacia
 aprendizaje activo y seguro, con mediación parental.
 
+> **Regla de registro:** El registro permite usuarios de 7 años en adelante, sin límite máximo de edad. Esto modifica únicamente la edad permitida para el registro y NO cambia el público objetivo pedagógico de la aplicación (7–11 años).
+
 ### Actores del sistema
 
 | Actor | Rol |
