@@ -25,11 +25,17 @@ Requisitos:
   - Variables de entorno: DB_HOST, DB_PORT, DB_USER, DB_PASSWORD (ver .env.example).
   - mysql.exe en el PATH (MySQL Server 8.0).
 
+Las variables de entorno se cargan automaticamente desde .env.
+
 Nunca se escribe en el log contrasenas ni valores de .env.
 
 Salida: exit code 0 solo si el preflight confirmo era_db_test y TODOS los tests pasan.
 #>
 $ErrorActionPreference = "Stop"
+
+# Cargar variables de entorno desde .env
+. (Join-Path $PSScriptRoot "Load-DotEnv.ps1")
+Load-DotEnv
 
 $script:Root      = Split-Path -Parent $PSScriptRoot
 $script:TestDb    = "era_db_test"                 # Unica base objetivo; nunca era_db

@@ -10,10 +10,14 @@ Uso:
   .\scripts\dev.ps1 -Once       compila y corre una sola vez, sin vigilar
   Ctrl+C para detener
 
-Nota: las variables de entorno (PORT, DB_*, JWT_SECRET, SMTP_*) deben estar
-definidas en esta terminal antes de ejecutar (ver .env.example).
+Las variables de entorno (PORT, DB_*, JWT_SECRET, SMTP_*) se cargan
+automaticamente desde el archivo .env de la raiz del proyecto.
 #>
 param([switch]$Once)
+
+# Cargar variables de entorno desde .env
+. (Join-Path $PSScriptRoot "Load-DotEnv.ps1")
+Load-DotEnv
 
 $ErrorActionPreference = "Stop"
 $root = Split-Path -Parent $PSScriptRoot
